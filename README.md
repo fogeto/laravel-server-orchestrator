@@ -73,15 +73,55 @@ Aynı Redis sunucusunu paylaşan birden fazla Laravel projesini güvenle izlemen
 
 Projenizde daha önce Prometheus entegrasyonu yoksa bu adımları takip edin.
 
-#### Adım 1 — Paketi Yükleyin
+#### Adım 1 — Repository Tanımlayın
+
+Paket henüz Packagist'te yayınlanmadığı için projenizin `composer.json` dosyasına repository eklemeniz gerekiyor.
+
+**Yöntem A — Lokal Path (Geliştirme ortamı):**
+
+Paket reposu bilgisayarınızda mevcutsa:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../laravel-server-orchestrator"
+        }
+    ]
+}
+```
+
+> `url` değerini paket klasörünün **göreceli yoluna** göre düzenleyin.
+
+**Yöntem B — GitHub VCS (Sunucu / production ortamı):**
+
+```json
+{
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/fogeto/laravel-server-orchestrator"
+        }
+    ]
+}
+```
+
+> Private repo ise sunucuda GitHub token / SSH key yapılandırması gerekir.
+
+#### Adım 2 — Paketi Yükleyin
 
 ```bash
-composer require fogeto/laravel-server-orchestrator
+# Path repository için:
+composer require fogeto/laravel-server-orchestrator:@dev
+
+# VCS repository için:
+composer require fogeto/laravel-server-orchestrator:dev-main
 ```
 
 > Laravel'in paket auto-discovery özelliği sayesinde ServiceProvider **otomatik** olarak kaydedilir. Ekstra bir kayıt yapmanıza gerek yoktur.
 
-#### Adım 2 — `.env` Dosyasına Prefix Ekleyin
+#### Adım 3 — `.env` Dosyasına Prefix Ekleyin
 
 ```env
 ORCHESTRATOR_PREFIX=projenizin_adi
@@ -91,7 +131,7 @@ ORCHESTRATOR_PREFIX=projenizin_adi
 >
 > Örnekler: `ikbackend`, `hrportal`, `crm`, `ecommerce`
 
-#### Adım 3 — Config Dosyasını Yayınlayın (Opsiyonel)
+#### Adım 4 — Config Dosyasını Yayınlayın (Opsiyonel)
 
 Varsayılan ayarlar çoğu proje için yeterlidir. Özelleştirmek isterseniz:
 
@@ -101,7 +141,7 @@ php artisan vendor:publish --tag=server-orchestrator-config
 
 Bu komut `config/server-orchestrator.php` dosyasını oluşturur.
 
-#### Adım 4 — Doğrulama
+#### Adım 5 — Doğrulama
 
 ```bash
 # Route'ların kayıt olduğunu kontrol edin
@@ -123,11 +163,9 @@ POST      api/wipe-metrics ... Fogeto\ServerOrchestrator\Http\Controllers\Metric
 
 Projenizde daha önce **inline** (elle yazılmış) Prometheus entegrasyonu varsa, `orchestrator:migrate` komutu eski dosyaları otomatik temizler.
 
-#### Adım 1 — Paketi Yükleyin
+#### Adım 1 — Repository Tanımlayın ve Paketi Yükleyin
 
-```bash
-composer require fogeto/laravel-server-orchestrator
-```
+Yukarıdaki [Yeni Proje — Adım 1](#adım-1--repository-tanımlayın) ve [Adım 2](#adım-2--paketi-yükleyin) bölümlerini uygulayın.
 
 #### Adım 2 — Neler Değişeceğini Görün (Dry Run)
 
