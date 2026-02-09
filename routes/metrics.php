@@ -1,6 +1,6 @@
 <?php
 
-use AysYazilim\ServerOrchestrator\Http\Controllers\MetricsController;
+use Fogeto\ServerOrchestrator\Http\Controllers\MetricsController;
 use Illuminate\Support\Facades\Route;
 
 $routeConfig = config('server-orchestrator.routes', []);

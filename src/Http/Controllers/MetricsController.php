@@ -1,6 +1,6 @@
 <?php
 
-namespace AysYazilim\ServerOrchestrator\Http\Controllers;
+namespace Fogeto\ServerOrchestrator\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

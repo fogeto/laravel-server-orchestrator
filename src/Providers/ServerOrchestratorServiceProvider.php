@@ -1,9 +1,9 @@
 <?php
 
-namespace AysYazilim\ServerOrchestrator\Providers;
+namespace Fogeto\ServerOrchestrator\Providers;
 
-use AysYazilim\ServerOrchestrator\Adapters\PredisAdapter;
-use AysYazilim\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
+use Fogeto\ServerOrchestrator\Adapters\PredisAdapter;
+use Fogeto\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\ServiceProvider;

@@ -1,6 +1,6 @@
 <?php
 
-namespace AysYazilim\ServerOrchestrator\Adapters;
+namespace Fogeto\ServerOrchestrator\Adapters;
 
 use Illuminate\Redis\Connections\Connection;
 use Prometheus\MetricFamilySamples;

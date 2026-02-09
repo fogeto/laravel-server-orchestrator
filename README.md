@@ -18,7 +18,7 @@ Aynı Redis sunucusunu paylaşan birden fazla Laravel projesini güvenle izlemen
 ### 1. Composer ile Yükleme
 
 ```bash
-composer require aysyazilim/laravel-server-orchestrator
+composer require fogeto/laravel-server-orchestrator
 ```
 
 > Laravel'in paket auto-discovery özelliği sayesinde ServiceProvider otomatik olarak kaydedilir.

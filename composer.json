@@ -1,5 +1,5 @@
 {
-    "name": "aysyazilim/laravel-server-orchestrator",
+    "name": "fogeto/laravel-server-orchestrator",
     "description": "Laravel Prometheus monitoring package for multi-project server orchestration. Compatible with Laravel 9-12.",
     "keywords": ["laravel", "prometheus", "monitoring", "metrics", "orchestrator", "observability"],
     "license": "MIT",
@@ -23,18 +23,18 @@
     },
     "autoload": {
         "psr-4": {
-            "AysYazilim\\ServerOrchestrator\\": "src/"
+            "Fogeto\\ServerOrchestrator\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "AysYazilim\\ServerOrchestrator\\Tests\\": "tests/"
+            "Fogeto\\ServerOrchestrator\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "AysYazilim\\ServerOrchestrator\\Providers\\ServerOrchestratorServiceProvider"
+                "Fogeto\\ServerOrchestrator\\Providers\\ServerOrchestratorServiceProvider"
             ]
         }
     },

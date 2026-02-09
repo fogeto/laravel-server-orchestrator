@@ -1,6 +1,6 @@
 <?php
 
-namespace AysYazilim\ServerOrchestrator\Http\Middleware;
+namespace Fogeto\ServerOrchestrator\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
