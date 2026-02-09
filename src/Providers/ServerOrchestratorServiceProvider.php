@@ -3,6 +3,7 @@
 namespace Fogeto\ServerOrchestrator\Providers;
 
 use Fogeto\ServerOrchestrator\Adapters\PredisAdapter;
+use Fogeto\ServerOrchestrator\Console\Commands\MigrateFromInlineCommand;
 use Fogeto\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Redis;
@@ -48,6 +49,13 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/../../config/server-orchestrator.php' => config_path('server-orchestrator.php'),
         ], 'server-orchestrator-config');
+
+        // Artisan komutlarını kaydet
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                MigrateFromInlineCommand::class,
+            ]);
+        }
 
         if (! config('server-orchestrator.enabled', true)) {
             return;
