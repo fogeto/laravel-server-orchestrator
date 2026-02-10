@@ -11,6 +11,12 @@ class PrometheusMiddleware
 {
     public function __construct(private CollectorRegistry $registry) {}
 
+    /**
+     * Handle: Sadece başlangıç zamanını kaydet ve isteği ilerlet.
+     *
+     * Metrik yazma işlemleri terminate() aşamasında yapılır, böylece
+     * response client'a gönderildikten sonra Redis'e yazılır (performans).
+     */
     public function handle(Request $request, Closure $next): Response
     {
         // Yok sayılacak path'leri kontrol et
@@ -18,9 +24,25 @@ class PrometheusMiddleware
             return $next($request);
         }
 
-        $start = microtime(true);
+        // Başlangıç zamanını request attribute olarak sakla
+        $request->attributes->set('_prometheus_start_time', microtime(true));
 
-        $response = $next($request);
+        return $next($request);
+    }
+
+    /**
+     * Terminate: Response gönderildikten sonra metrikleri Redis'e kaydet.
+     *
+     * Bu metod HTTP kernel tarafından response client'a iletildikten sonra çağrılır.
+     * Böylece metrik yazma gecikmesi kullanıcıya yansımaz.
+     */
+    public function terminate(Request $request, Response $response): void
+    {
+        $start = $request->attributes->get('_prometheus_start_time');
+
+        if ($start === null) {
+            return;
+        }
 
         $duration = microtime(true) - $start;
         $method = $request->method();
@@ -28,42 +50,50 @@ class PrometheusMiddleware
         $endpoint = $this->resolveEndpoint($request);
         [$controller, $action] = $this->resolveControllerAction($request);
 
-        $buckets = config('server-orchestrator.histogram_buckets', [
-            0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
-            1.0, 2.5, 5.0, 10.0, 30.0,
+        $buckets = config('server-orchestrator.http_histogram_buckets', [
+            0.001,
+            0.005,
+            0.01,
+            0.05,
+            0.1,
+            0.5,
+            1,
+            5,
         ]);
 
-        // Request duration histogram
-        $histogram = $this->registry->getOrRegisterHistogram(
-            'http',
-            'request_duration_seconds',
-            'The duration of HTTP requests processed by a Laravel application.',
-            ['code', 'method', 'controller', 'action', 'endpoint'],
-            $buckets
-        );
-        $histogram->observe($duration, [$code, $method, $controller, $action, $endpoint]);
-
-        // Total requests counter
-        $counter = $this->registry->getOrRegisterCounter(
-            'http',
-            'requests_total',
-            'Total number of HTTP requests.',
-            ['code', 'method', 'controller', 'action', 'endpoint']
-        );
-        $counter->inc([$code, $method, $controller, $action, $endpoint]);
-
-        // Error counter (4xx ve 5xx)
-        if ($response->getStatusCode() >= 400) {
-            $errorCounter = $this->registry->getOrRegisterCounter(
+        try {
+            // HTTP request duration histogram
+            $histogram = $this->registry->getOrRegisterHistogram(
                 'http',
-                'errors_total',
-                'Total number of HTTP errors (4xx and 5xx).',
+                'request_duration_seconds',
+                'The duration of HTTP requests processed by a Laravel application.',
+                ['code', 'method', 'controller', 'action', 'endpoint'],
+                $buckets
+            );
+            $histogram->observe($duration, [$code, $method, $controller, $action, $endpoint]);
+
+            // Total requests counter
+            $counter = $this->registry->getOrRegisterCounter(
+                'http',
+                'requests_total',
+                'Total number of HTTP requests.',
                 ['code', 'method', 'controller', 'action', 'endpoint']
             );
-            $errorCounter->inc([$code, $method, $controller, $action, $endpoint]);
-        }
+            $counter->inc([$code, $method, $controller, $action, $endpoint]);
 
-        return $response;
+            // Error counter (4xx ve 5xx)
+            if ($response->getStatusCode() >= 400) {
+                $errorCounter = $this->registry->getOrRegisterCounter(
+                    'http',
+                    'errors_total',
+                    'Total number of HTTP errors (4xx and 5xx).',
+                    ['code', 'method', 'controller', 'action', 'endpoint']
+                );
+                $errorCounter->inc([$code, $method, $controller, $action, $endpoint]);
+            }
+        } catch (\Throwable $e) {
+            // Metrik hatası uygulamayı kırmamalı — sessizce devam et
+        }
     }
 
     /**

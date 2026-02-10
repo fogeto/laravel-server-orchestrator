@@ -83,17 +83,92 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Histogram Bucket'ları
+    | HTTP Histogram Bucket'ları
     |--------------------------------------------------------------------------
     |
-    | HTTP request duration histogram için bucket sınırları (saniye cinsinden).
-    | Prometheus standart bucket'ları kullanılır. Daha hassas ölçüm için
-    | düşük değerli bucket'lar ekleyebilirsiniz.
+    | http_request_duration_seconds histogram için bucket sınırları (saniye).
+    | Prometheus standartlarına uygun değerler kullanılır.
     |
     */
-    'histogram_buckets' => [
-        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
-        1.0, 2.5, 5.0, 10.0, 30.0,
+    'http_histogram_buckets' => [
+        0.001,
+        0.005,
+        0.01,
+        0.05,
+        0.1,
+        0.5,
+        1,
+        5,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | SQL Histogram Bucket'ları
+    |--------------------------------------------------------------------------
+    |
+    | sql_query_duration_seconds histogram için bucket sınırları (saniye).
+    | Veritabanı sorgu sürelerini ölçmek için kullanılır.
+    |
+    */
+    'sql_histogram_buckets' => [
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | SQL Metrikleri Ayarları
+    |--------------------------------------------------------------------------
+    |
+    | DB::listen ile yakalanan SQL sorgu metriklerinin yapılandırması.
+    | - enabled: SQL metrik toplamayı aktifleştir/devre dışı bırak
+    | - include_query_label: Sorgu metnini label olarak ekle (yüksek
+    |   kardinaliteye neden olabilir, dikkatli kullanın)
+    | - query_max_length: Label'daki sorgu metninin max uzunluğu
+    | - ignore_patterns: Bu regex pattern'lara uyan sorgular izlenmez
+    |
+    */
+    'sql_metrics' => [
+        'enabled' => env('ORCHESTRATOR_SQL_METRICS', true),
+        'include_query_label' => env('ORCHESTRATOR_SQL_QUERY_LABEL', true),
+        'query_max_length' => 200,
+        'ignore_patterns' => [
+            '/^SHOW\s/i',
+            '/^SET\s/i',
+            '/information_schema/i',
+            '/^DESCRIBE\s/i',
+            '/^EXPLAIN\s/i',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | PHP-FPM Metrikleri
+    |--------------------------------------------------------------------------
+    |
+    | PHP-FPM worker metriklerini toplamak için status endpoint yapılandırması.
+    | PHP-FPM'in pm.status_path ayarının aktif olması gerekir.
+    |
+    | Gerekli PHP-FPM pool ayarı:
+    |   pm.status_path = /fpm-status
+    |
+    | Nginx/Apache config'inde bu path'i dışarıya kapatıp,
+    | sadece localhost'tan erişilebilir yapmanız önerilir.
+    |
+    */
+    'fpm' => [
+        'enabled' => env('ORCHESTRATOR_FPM_ENABLED', true),
+        'status_url' => env('ORCHESTRATOR_FPM_STATUS_URL', 'http://127.0.0.1/fpm-status'),
+        'timeout' => 2, // HTTP isteği timeout (saniye)
     ],
 
     /*
@@ -111,6 +186,7 @@ return [
         'uptime' => true,
         'database' => true,
         'opcache' => true,
+        'fpm' => true,
         'health' => true,
     ],
 

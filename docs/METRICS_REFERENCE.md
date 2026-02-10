@@ -20,10 +20,10 @@ Bu metrikler her HTTP isteğinde otomatik olarak kaydedilir.
 
 **Bucket sınırları (saniye):**
 ```
-0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0
+0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5
 ```
 
-> Config'den değiştirilebilir: `server-orchestrator.histogram_buckets`
+> Config'den değiştirilebilir: `server-orchestrator.http_histogram_buckets`
 
 **Label detayları:**
 
@@ -69,6 +69,53 @@ Tüm HTTP isteklerini sayar. Label'lar `http_request_duration_seconds` ile aynı
 | Label'lar | `code`, `method`, `controller`, `action`, `endpoint` |
 
 Sadece status kodu **≥ 400** olan isteklerde kaydedilir. 1xx, 2xx, 3xx istekleri bu metrikte görünmez.
+
+---
+
+## SQL Sorgu Metrikleri (ServiceProvider — DB::listen)
+
+Bu metrikler `DB::listen` ile otomatik olarak her SQL sorgusu çalıştığında kaydedilir.
+
+### sql_query_duration_seconds
+
+| Alan | Değer |
+|------|-------|
+| Tip | Histogram |
+| Namespace | `sql` |
+| Ad | `query_duration_seconds` |
+| Açıklama | Duration of SQL queries in seconds. |
+| Label'lar | `operation`, `table`, `query`, `query_hash` |
+| Config | `sql_metrics.enabled` |
+
+**Bucket sınırları (saniye):**
+```
+0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10
+```
+
+> Config'den değiştirilebilir: `server-orchestrator.sql_histogram_buckets`
+
+**Label detayları:**
+
+| Label | Açıklama | Örnek Değer |
+|-------|----------|-------------|
+| `operation` | SQL işlem türü (regex ile tespit) | `"SELECT"`, `"INSERT"`, `"UPDATE"`, `"DELETE"` |
+| `table` | Etkilenen ana tablo adı | `"users"`, `"orders"`, `"unknown"` |
+| `query` | Binding'leri yerleştirilmiş SQL sorgusu | `"SELECT * FROM users WHERE id = 1"` |
+| `query_hash` | Sorgu metninin MD5 hash'i | `"a1b2c3d4e5f6..."` |
+
+**SQL Operation tespiti:**
+- `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `ALTER`, `CREATE`, `DROP`, `TRUNCATE`, `REPLACE` desteklenir
+- Tanınmayan sorgular `OTHER` olarak etiketlenir
+
+**Yok sayılan sorgular (varsayılan):**
+- `SHOW ...` (MySQL sistem sorguları)
+- `SET ...` (oturum ayarları)
+- `DESCRIBE ...` / `EXPLAIN ...`
+- `information_schema` içeren sorgular
+
+> Config: `server-orchestrator.sql_metrics.ignore_patterns`
+
+**Uyarı:** `query` label'ı yüksek kardinaliteye neden olabilir. Production'da `sql_metrics.include_query_label` ayarını `false` yaparak devre dışı bırakabilirsiniz.
 
 ---
 
@@ -139,41 +186,60 @@ Octane/Swoole altında gerçek process uptime'ını gösterir.
 
 ---
 
-### db_connections_active
+### db_client_connections_usage
 
 | Alan | Değer |
 |------|-------|
 | Tip | Gauge |
-| Namespace | `db` |
-| Ad | `connections_active` |
-| Açıklama | Active database connections |
-| Label'lar | — |
+| Namespace | `db_client` |
+| Ad | `connections_usage` |
+| Açıklama | Database connections by state |
+| Label'lar | `state` |
 | Config | `system_metrics.database` |
-| Önkoşul | MySQL/MariaDB, DB erişilebilir |
+| Önkoşul | MySQL/MariaDB veya PostgreSQL, DB erişilebilir |
 
-MySQL `SHOW STATUS LIKE 'Threads_connected'` sorgusundan alınır.  
-PostgreSQL veya SQLite kullanan projelerde bu metrik üretilmez (sessizce atlanır).
+**State değerleri:**
+- `state="idle"` → Bağlı ama aktif sorgu çalıştırmayan thread'ler (MySQL: `Threads_connected - Threads_running`)
+- `state="used"` → Aktif olarak sorgu çalıştıran thread'ler (MySQL: `Threads_running`)
+
+PostgreSQL'de `pg_stat_activity` tablosundan okunur.
 
 ---
 
-### db_connections_max
+### db_client_connections_max
 
 | Alan | Değer |
 |------|-------|
 | Tip | Gauge |
-| Namespace | `db` |
+| Namespace | `db_client` |
 | Ad | `connections_max` |
-| Açıklama | Maximum database connection limit |
+| Açıklama | Maximum pool connections |
 | Label'lar | — |
 | Config | `system_metrics.database` |
-| Önkoşul | MySQL/MariaDB, DB erişilebilir |
+| Önkoşul | MySQL/MariaDB veya PostgreSQL, DB erişilebilir |
 
-MySQL `SHOW VARIABLES LIKE 'max_connections'` sorgusundan alınır.
+MySQL: `SHOW VARIABLES LIKE 'max_connections'`  
+PostgreSQL: `SHOW max_connections`
+
+---
+
+### db_client_connections_pending_requests
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `db_client` |
+| Ad | `connections_pending_requests` |
+| Açıklama | Pending connection requests |
+| Label'lar | — |
+| Config | `system_metrics.database` |
+
+Bekleyen bağlantı isteklerini gösterir. MySQL'de doğrudan bir karşılığı olmadığından varsayılan `0` değeri kullanılır.
 
 **Kullanışlı PromQL:**
 ```promql
 # Bağlantı kullanım oranı (%)
-db_connections_active / db_connections_max * 100
+db_client_connections_usage{state="used"} / db_client_connections_max * 100
 ```
 
 ---
@@ -224,6 +290,136 @@ OPcache aktifse `memory_usage.used_memory` değeri.
 
 ---
 
+### php_fpm_active_processes
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `active_processes` |
+| Açıklama | Number of active PHP-FPM worker processes |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+| Önkoşul | PHP-FPM status endpoint erişilebilir |
+
+Aktif olarak istek işleyen PHP-FPM worker sayısı.
+
+---
+
+### php_fpm_idle_processes
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `idle_processes` |
+| Açıklama | Number of idle PHP-FPM worker processes |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+
+Boşta bekleyen PHP-FPM worker sayısı.
+
+---
+
+### php_fpm_total_processes
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `total_processes` |
+| Açıklama | Total number of PHP-FPM worker processes |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+
+Toplam PHP-FPM worker sayısı (active + idle).
+
+---
+
+### php_fpm_max_active_processes
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `max_active_processes` |
+| Açıklama | Maximum number of active processes since FPM started |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+
+FPM başladığından beri görülen en yüksek aktif worker sayısı (peak).
+
+---
+
+### php_fpm_accepted_connections
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `accepted_connections` |
+| Açıklama | Total number of accepted connections |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+
+FPM başladığından beri kabul edilen toplam bağlantı sayısı.
+
+---
+
+### php_fpm_listen_queue
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `listen_queue` |
+| Açıklama | Number of requests in the listen queue |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+
+Kuyrukta bekleyen istek sayısı. Bu değer > 0 ise worker'lar yetersiz demektir.
+
+---
+
+### php_fpm_max_listen_queue
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `max_listen_queue` |
+| Açıklama | Maximum number of requests in the listen queue since FPM started |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+
+FPM başladığından beri görülen en yüksek kuyruk uzunluğu (peak).
+
+---
+
+### php_fpm_slow_requests
+
+| Alan | Değer |
+|------|-------|
+| Tip | Gauge |
+| Namespace | `php_fpm` |
+| Ad | `slow_requests` |
+| Açıklama | Total number of slow requests |
+| Label'lar | — |
+| Config | `system_metrics.fpm` + `fpm.enabled` |
+
+PHP-FPM'in `request_slowlog_timeout` ayarına göre yavaş kabul edilen istekler.
+
+**Kullanışlı PromQL:**
+```promql
+# Worker kullanım oranı (%)
+php_fpm_active_processes / php_fpm_total_processes * 100
+
+# Kuyruk alarmı (>0 ise worker yetersiz)
+php_fpm_listen_queue > 0
+```
+
+---
+
 ### app_health_status
 
 | Alan | Değer |
@@ -266,15 +462,20 @@ Wildcard (`*`) desteği `fnmatch()` fonksiyonu ile sağlanır.
 ## Metrik Yaşam Döngüsü
 
 ```
-1. Middleware: HTTP metrikleri Redis'e yazılır
+1. Middleware (terminate): HTTP metrikleri response sonrası Redis'e yazılır
    └─ Counter: HINCRBYFLOAT → atom, kayıp yok
    └─ Histogram: HINCRBY + HINCRBYFLOAT → atom, kayıp yok
 
-2. GET /metrics: Sistem metrikleri anlık toplanır
+2. ServiceProvider (DB::listen): SQL sorgu metrikleri her query'de Redis'e yazılır
+   └─ Histogram: operation, table, query, query_hash label'ları ile
+   └─ Milisaniye → saniye dönüşümü otomatik
+
+3. GET /metrics: Sistem metrikleri anlık toplanır
    └─ Gauge'lar: Anı yansıtır, Redis'te saklanır
+   └─ PHP-FPM: status endpoint'ınden HTTP ile alınır
    └─ Redis'ten collect() → RenderTextFormat
 
-3. POST /wipe-metrics: Tüm veriler sıfırlanır
+4. POST /wipe-metrics: Tüm veriler sıfırlanır
    └─ Lua script ile tek seferde silme
    └─ Sadece bu proje prefix'ine ait key'ler silinir
 ```

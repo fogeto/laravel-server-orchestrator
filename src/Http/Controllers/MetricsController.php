@@ -72,6 +72,10 @@ class MetricsController extends Controller
             $this->collectOpcache();
         }
 
+        if ($config['fpm'] ?? true) {
+            $this->collectFpmMetrics();
+        }
+
         if ($config['health'] ?? true) {
             $this->collectHealth($dbAvailable);
         }
@@ -126,32 +130,120 @@ class MetricsController extends Controller
 
     /**
      * MySQL veritabanı bağlantı metrikleri.
+     *
+     * Prometheus formatında üretilen metrikler:
+     *   - db_client_connections_usage{state="idle|used"} (gauge)
+     *   - db_client_connections_max (gauge)
+     *   - db_client_connections_pending_requests (gauge)
      */
     private function collectDatabaseMetrics(): void
     {
         try {
-            $dbConnections = DB::select("SHOW STATUS LIKE 'Threads_connected'");
-            $dbMaxConnections = DB::select("SHOW VARIABLES LIKE 'max_connections'");
+            $driver = config('database.default', 'mysql');
 
-            if (! empty($dbConnections)) {
-                $gauge = $this->registry->getOrRegisterGauge(
-                    'db',
-                    'connections_active',
-                    'Active database connections'
-                );
-                $gauge->set((int) $dbConnections[0]->Value);
-            }
-
-            if (! empty($dbMaxConnections)) {
-                $gauge = $this->registry->getOrRegisterGauge(
-                    'db',
-                    'connections_max',
-                    'Maximum database connection limit'
-                );
-                $gauge->set((int) $dbMaxConnections[0]->Value);
+            if ($driver === 'mysql' || $driver === 'mariadb') {
+                $this->collectMysqlConnectionMetrics();
+            } elseif ($driver === 'pgsql') {
+                $this->collectPgsqlConnectionMetrics();
             }
         } catch (\Exception $e) {
-            // MySQL dışı veritabanları veya bağlantı hatası — sessizce devam et
+            // DB dışı veritabanları veya bağlantı hatası — sessizce devam et
+        }
+    }
+
+    /**
+     * MySQL/MariaDB bağlantı metriklerini topla.
+     */
+    private function collectMysqlConnectionMetrics(): void
+    {
+        $threadsConnected = DB::select("SHOW STATUS LIKE 'Threads_connected'");
+        $threadsRunning = DB::select("SHOW STATUS LIKE 'Threads_running'");
+        $maxConnections = DB::select("SHOW VARIABLES LIKE 'max_connections'");
+
+        $connected = ! empty($threadsConnected) ? (int) $threadsConnected[0]->Value : 0;
+        $running = ! empty($threadsRunning) ? (int) $threadsRunning[0]->Value : 0;
+        $max = ! empty($maxConnections) ? (int) $maxConnections[0]->Value : 0;
+
+        // idle = toplam bağlı thread'ler - aktif çalışan thread'ler
+        $idle = max(0, $connected - $running);
+
+        // db_client_connections_usage{state="idle"} ve {state="used"}
+        $usageGauge = $this->registry->getOrRegisterGauge(
+            'db_client',
+            'connections_usage',
+            'Database connections by state',
+            ['state']
+        );
+        $usageGauge->set($idle, ['idle']);
+        $usageGauge->set($running, ['used']);
+
+        // db_client_connections_max
+        $maxGauge = $this->registry->getOrRegisterGauge(
+            'db_client',
+            'connections_max',
+            'Maximum pool connections'
+        );
+        $maxGauge->set($max);
+
+        // db_client_connections_pending_requests
+        $pendingGauge = $this->registry->getOrRegisterGauge(
+            'db_client',
+            'connections_pending_requests',
+            'Pending connection requests'
+        );
+        $pendingGauge->set(0);
+    }
+
+    /**
+     * PostgreSQL bağlantı metriklerini topla.
+     */
+    private function collectPgsqlConnectionMetrics(): void
+    {
+        try {
+            $dbName = config('database.connections.pgsql.database', 'forge');
+
+            // Aktif bağlantılar
+            $result = DB::select(
+                "SELECT count(*) as cnt FROM pg_stat_activity WHERE datname = ? AND state = 'active'",
+                [$dbName]
+            );
+            $active = ! empty($result) ? (int) $result[0]->cnt : 0;
+
+            // Idle bağlantılar
+            $resultIdle = DB::select(
+                "SELECT count(*) as cnt FROM pg_stat_activity WHERE datname = ? AND state = 'idle'",
+                [$dbName]
+            );
+            $idle = ! empty($resultIdle) ? (int) $resultIdle[0]->cnt : 0;
+
+            // Max bağlantılar
+            $maxResult = DB::select("SHOW max_connections");
+            $max = ! empty($maxResult) ? (int) $maxResult[0]->max_connections : 100;
+
+            $usageGauge = $this->registry->getOrRegisterGauge(
+                'db_client',
+                'connections_usage',
+                'Database connections by state',
+                ['state']
+            );
+            $usageGauge->set($idle, ['idle']);
+            $usageGauge->set($active, ['used']);
+
+            $maxGauge = $this->registry->getOrRegisterGauge(
+                'db_client',
+                'connections_max',
+                'Maximum pool connections'
+            );
+            $maxGauge->set($max);
+
+            $pendingGauge = $this->registry->getOrRegisterGauge(
+                'db_client',
+                'connections_pending_requests',
+                'Pending connection requests'
+            );
+            $pendingGauge->set(0);
+        } catch (\Exception $e) {
+            // PostgreSQL sorgu hatası — sessizce devam et
         }
     }
 
@@ -192,6 +284,136 @@ class MetricsController extends Controller
             );
             $memUsed->set($status['memory_usage']['used_memory'] ?? 0);
         }
+    }
+
+    /**
+     * PHP-FPM worker metrikleri.
+     *
+     * PHP-FPM'in pm.status_path üzerinden JSON formatında durum bilgisi alır.
+     * Prometheus formatında üretilen metrikler:
+     *   - php_fpm_active_processes (gauge)
+     *   - php_fpm_idle_processes (gauge)
+     *   - php_fpm_total_processes (gauge)
+     *   - php_fpm_max_active_processes (gauge) — peak
+     *   - php_fpm_accepted_connections (gauge) — toplam kabul edilen bağlantı
+     *   - php_fpm_listen_queue (gauge) — kuyrukta bekleyen istek
+     *   - php_fpm_max_listen_queue (gauge) — peak kuyruk
+     *   - php_fpm_slow_requests (gauge) — yavaş istekler
+     */
+    private function collectFpmMetrics(): void
+    {
+        $fpmConfig = config('server-orchestrator.fpm', []);
+
+        if (! ($fpmConfig['enabled'] ?? true)) {
+            return;
+        }
+
+        try {
+            $statusData = $this->fetchFpmStatus($fpmConfig);
+
+            if ($statusData === null) {
+                return;
+            }
+
+            // Active processes
+            $activeGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'active_processes',
+                'Number of active PHP-FPM worker processes'
+            );
+            $activeGauge->set((int) ($statusData['active processes'] ?? 0));
+
+            // Idle processes
+            $idleGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'idle_processes',
+                'Number of idle PHP-FPM worker processes'
+            );
+            $idleGauge->set((int) ($statusData['idle processes'] ?? 0));
+
+            // Total processes
+            $totalGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'total_processes',
+                'Total number of PHP-FPM worker processes'
+            );
+            $totalGauge->set((int) ($statusData['total processes'] ?? 0));
+
+            // Max active processes (peak)
+            $maxActiveGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'max_active_processes',
+                'Maximum number of active processes since FPM started'
+            );
+            $maxActiveGauge->set((int) ($statusData['max active processes'] ?? 0));
+
+            // Accepted connections (total handled)
+            $acceptedGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'accepted_connections',
+                'Total number of accepted connections'
+            );
+            $acceptedGauge->set((int) ($statusData['accepted conn'] ?? 0));
+
+            // Listen queue (waiting requests)
+            $listenQueueGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'listen_queue',
+                'Number of requests in the listen queue'
+            );
+            $listenQueueGauge->set((int) ($statusData['listen queue'] ?? 0));
+
+            // Max listen queue (peak)
+            $maxListenQueueGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'max_listen_queue',
+                'Maximum number of requests in the listen queue since FPM started'
+            );
+            $maxListenQueueGauge->set((int) ($statusData['max listen queue'] ?? 0));
+
+            // Slow requests
+            $slowGauge = $this->registry->getOrRegisterGauge(
+                'php_fpm',
+                'slow_requests',
+                'Total number of slow requests'
+            );
+            $slowGauge->set((int) ($statusData['slow requests'] ?? 0));
+        } catch (\Throwable $e) {
+            // FPM status alınamadı — sessizce devam et
+        }
+    }
+
+    /**
+     * PHP-FPM status endpoint'ınden JSON veri al.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function fetchFpmStatus(array $fpmConfig): ?array
+    {
+        $url = ($fpmConfig['status_url'] ?? 'http://127.0.0.1/fpm-status') . '?json';
+        $timeout = $fpmConfig['timeout'] ?? 2;
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => $timeout,
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        $response = @file_get_contents($url, false, $context);
+
+        if ($response === false) {
+            return null;
+        }
+
+        $data = json_decode($response, true);
+
+        if (! is_array($data)) {
+            return null;
+        }
+
+        return $data;
     }
 
     /**
