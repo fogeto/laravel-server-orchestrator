@@ -13,6 +13,14 @@ class PredisAdapter implements Adapter
     private ?int $ttl;
 
     /**
+     * In-memory meta cache — aynı metriğin meta bilgisi tekrar yazılmasını önler.
+     * Process başına bir kez yazılır, sonraki çağrılar skip edilir.
+     *
+     * @var array<string, true>
+     */
+    private static array $metaWritten = [];
+
+    /**
      * @param  string  $prefix  Redis key prefix'i (proje izolasyonu için)
      * @param  int|null  $ttl  Redis key TTL (saniye). null ise TTL uygulanmaz.
      */
@@ -72,14 +80,21 @@ LUA;
         $metaKey = $this->prefix . 'gauges:meta';
         $labelKey = $this->encodeLabelValues($data['labelValues']);
 
-        $this->redis->hset($key, $labelKey, $data['value']);
-        $this->redis->hset($metaKey, $data['name'], json_encode([
-            'name' => $data['name'],
-            'help' => $data['help'],
-            'labelNames' => $data['labelNames'],
-        ]));
+        $commands = [
+            ['hset', $key, $labelKey, $data['value']],
+        ];
 
-        $this->applyTtl($key, $metaKey);
+        // Meta bilgisi sadece process başına bir kez yazılır
+        if (! isset(self::$metaWritten[$metaKey . ':' . $data['name']])) {
+            $commands[] = ['hset', $metaKey, $data['name'], json_encode([
+                'name' => $data['name'],
+                'help' => $data['help'],
+                'labelNames' => $data['labelNames'],
+            ])];
+            self::$metaWritten[$metaKey . ':' . $data['name']] = true;
+        }
+
+        $this->executePipeline($commands, $key, $metaKey);
     }
 
     public function updateCounter(array $data): void
@@ -88,14 +103,20 @@ LUA;
         $metaKey = $this->prefix . 'counters:meta';
         $labelKey = $this->encodeLabelValues($data['labelValues']);
 
-        $this->redis->hincrbyfloat($key, $labelKey, $data['value']);
-        $this->redis->hset($metaKey, $data['name'], json_encode([
-            'name' => $data['name'],
-            'help' => $data['help'],
-            'labelNames' => $data['labelNames'],
-        ]));
+        $commands = [
+            ['hincrbyfloat', $key, $labelKey, $data['value']],
+        ];
 
-        $this->applyTtl($key, $metaKey);
+        if (! isset(self::$metaWritten[$metaKey . ':' . $data['name']])) {
+            $commands[] = ['hset', $metaKey, $data['name'], json_encode([
+                'name' => $data['name'],
+                'help' => $data['help'],
+                'labelNames' => $data['labelNames'],
+            ])];
+            self::$metaWritten[$metaKey . ':' . $data['name']] = true;
+        }
+
+        $this->executePipeline($commands, $key, $metaKey);
     }
 
     public function updateHistogram(array $data): void
@@ -104,31 +125,29 @@ LUA;
         $metaKey = $this->prefix . 'histograms:meta';
         $labelKey = $this->encodeLabelValues($data['labelValues']);
 
-        // Count — her gözlem için 1 artır
-        $countField = $labelKey . ':count';
-        $this->redis->hincrby($key, $countField, 1);
-
-        // Sum — toplam değer
-        $sumField = $labelKey . ':sum';
-        $this->redis->hincrbyfloat($key, $sumField, $data['value']);
+        $commands = [
+            ['hincrby', $key, $labelKey . ':count', 1],
+            ['hincrbyfloat', $key, $labelKey . ':sum', $data['value']],
+        ];
 
         // Bucket'lar (kümülatif — değerden büyük veya eşit tüm bucket'lara 1 ekle)
         foreach ($data['buckets'] as $bucket) {
             if ($data['value'] <= $bucket) {
-                $bucketField = $labelKey . ':bucket:' . $bucket;
-                $this->redis->hincrby($key, $bucketField, 1);
+                $commands[] = ['hincrby', $key, $labelKey . ':bucket:' . $bucket, 1];
             }
         }
 
-        // Meta bilgisini kaydet
-        $this->redis->hset($metaKey, $data['name'], json_encode([
-            'name' => $data['name'],
-            'help' => $data['help'],
-            'labelNames' => $data['labelNames'],
-            'buckets' => $data['buckets'],
-        ]));
+        if (! isset(self::$metaWritten[$metaKey . ':' . $data['name']])) {
+            $commands[] = ['hset', $metaKey, $data['name'], json_encode([
+                'name' => $data['name'],
+                'help' => $data['help'],
+                'labelNames' => $data['labelNames'],
+                'buckets' => $data['buckets'],
+            ])];
+            self::$metaWritten[$metaKey . ':' . $data['name']] = true;
+        }
 
-        $this->applyTtl($key, $metaKey);
+        $this->executePipeline($commands, $key, $metaKey);
     }
 
     public function updateSummary(array $data): void
@@ -150,7 +169,7 @@ LUA;
         $metrics = array_merge($metrics, $this->collectHistograms());
 
         if ($sortMetrics) {
-            usort($metrics, fn ($a, $b) => strcmp($a->getName(), $b->getName()));
+            usort($metrics, fn($a, $b) => strcmp($a->getName(), $b->getName()));
         }
 
         return $metrics;
@@ -328,18 +347,34 @@ LUA;
     }
 
     /**
-     * Verilen key'lere TTL uygula.
-     * TTL null ise (sonsuz saklama) herhangi bir işlem yapılmaz.
+     * Tüm komutları tek bir Redis pipeline'da çalıştır.
+     * TTL varsa %5 olasılıkla EXPIRE ekler (her istekte değil).
+     *
+     * Optimizasyon: 20+ ayrı round-trip → 1 round-trip.
+     * Predis client'ın native pipeline'ı kullanılır.
      */
-    private function applyTtl(string ...$keys): void
+    private function executePipeline(array $commands, string ...$ttlKeys): void
     {
-        if ($this->ttl === null) {
-            return;
-        }
+        // TTL throttle — her istekte EXPIRE çağırmak yerine
+        // %5 olasılıkla (ortalama her 20 istekte bir) TTL yenile.
+        // 7 günlük TTL'de bu yeterince güvenli.
+        $shouldExpire = $this->ttl !== null && random_int(1, 20) === 1;
 
-        foreach ($keys as $key) {
-            $this->redis->expire($key, $this->ttl);
-        }
+        $client = $this->redis->client();
+
+        $responses = $client->pipeline(function ($pipe) use ($commands, $ttlKeys, $shouldExpire) {
+            foreach ($commands as $cmd) {
+                $method = $cmd[0];
+                $args = array_slice($cmd, 1);
+                $pipe->$method(...$args);
+            }
+
+            if ($shouldExpire) {
+                foreach ($ttlKeys as $key) {
+                    $pipe->expire($key, $this->ttl);
+                }
+            }
+        });
     }
 
     /**
@@ -348,7 +383,7 @@ LUA;
      */
     private function encodeLabelValues(array $labelValues): string
     {
-        return implode(':', array_map(fn ($v) => base64_encode((string) $v), $labelValues));
+        return implode(':', array_map(fn($v) => base64_encode((string) $v), $labelValues));
     }
 
     /**
@@ -360,6 +395,6 @@ LUA;
             return [];
         }
 
-        return array_map(fn ($v) => base64_decode($v), explode(':', $encoded));
+        return array_map(fn($v) => base64_decode($v), explode(':', $encoded));
     }
 }

@@ -3,6 +3,14 @@
 Tüm önemli değişiklikler bu dosyada belgelenir.  
 Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uygundur.
 
+## [1.0.3] - 2026-02-10
+
+### Changed
+- **Pipeline optimizasyonu:** Tüm Redis komutları tek round-trip'te gönderiliyor (20+ → 1)
+- **Meta cache:** Metrik meta bilgisi process başına bir kez yazılır (gereksiz HSET eliminasyonu)
+- **TTL throttle:** EXPIRE %5 olasılıkla çağrılır (her istekte değil, 7 günlük TTL'de güvenli)
+- `executePipeline()` metodu — Predis native pipeline kullanır
+
 ## [1.0.2] - 2026-02-10
 
 ### Added
