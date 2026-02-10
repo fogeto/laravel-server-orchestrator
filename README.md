@@ -22,17 +22,13 @@ Aynı Redis sunucusunu paylaşan birden fazla Laravel projesini güvenle izlemen
   - [Metrikleri Temizleme (Wipe)](#metrikleri-temizleme-wipe)
 - [Toplanan Metrikler](#toplanan-metrikler)
   - [HTTP Metrikleri (Otomatik)](#http-metrikleri-otomatik)
-  - [SQL Sorgu Metrikleri (Otomatik)](#sql-sorgu-metrikleri-otomatik)
-  - [Veritabanı Bağlantı Metrikleri](#veritabanı-bağlantı-metrikleri)
   - [Sistem Metrikleri](#sistem-metrikleri)
 - [Konfigürasyon](#konfigürasyon)
   - [Tüm .env Değişkenleri](#tüm-env-değişkenleri)
   - [Prefix (Redis Key İzolasyonu)](#prefix-redis-key-izolasyonu)
   - [Middleware Ayarları](#middleware-ayarları)
   - [Route Ayarları](#route-ayarları)
-  - [HTTP Histogram Bucket'ları](#http-histogram-bucketları)
-  - [SQL Histogram Bucket'ları](#sql-histogram-bucketları)
-  - [SQL Metrikleri Ayarları](#sql-metrikleri-ayarları)
+  - [Histogram Bucket'ları](#histogram-bucketları)
   - [Sistem Metrikleri Açma/Kapama](#sistem-metrikleri-açmakapama)
 - [Çoklu Proje Yapılandırması](#çoklu-proje-yapılandırması)
 - [Özel Metrik Ekleme](#özel-metrik-ekleme)
@@ -49,8 +45,7 @@ Aynı Redis sunucusunu paylaşan birden fazla Laravel projesini güvenle izlemen
 |---------|----------|
 | 🔑 **Redis Key İzolasyonu** | Her proje için benzersiz prefix (`prometheus:{prefix}:*`) |
 | 📊 **Otomatik HTTP Metrikleri** | Request duration histogram, toplam istek sayacı, hata sayacı |
-| �️ **SQL Sorgu Metrikleri** | DB::listen ile otomatik SQL sorgu süresi, operation, table, query tracking |
-| 🖥️ **Sistem Metrikleri** | PHP info, memory, uptime, DB connections, OPcache, PHP-FPM workers, health |
+| 🖥️ **Sistem Metrikleri** | PHP info, memory, uptime, DB connections, OPcache, health |
 | 🔄 **Laravel 9-12 Desteği** | Tek paket, tüm sürümlerle uyumlu |
 | ⚡ **Sıfır Konfigürasyon** | Kurup çalıştırın, ihtiyaç olursa her şey özelleştirilebilir |
 | 🚫 **Wildcard Path Ignore** | Telescope, Horizon, metrics gibi yolları izlemekten hariç tutun |
@@ -78,17 +73,55 @@ Aynı Redis sunucusunu paylaşan birden fazla Laravel projesini güvenle izlemen
 
 Projenizde daha önce Prometheus entegrasyonu yoksa bu adımları takip edin.
 
-#### Adım 1 — Paketi Yükleyin
+#### Adım 1 — Repository Tanımlayın
 
-Paket [Packagist](https://packagist.org/packages/fogeto/laravel-server-orchestrator)'te yayında. Doğrudan Composer ile yükleyin:
+Paket henüz Packagist'te yayınlanmadığı için projenizin `composer.json` dosyasına repository eklemeniz gerekiyor.
+
+**Yöntem A — Lokal Path (Geliştirme ortamı):**
+
+Paket reposu bilgisayarınızda mevcutsa:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../laravel-server-orchestrator"
+        }
+    ]
+}
+```
+
+> `url` değerini paket klasörünün **göreceli yoluna** göre düzenleyin.
+
+**Yöntem B — GitHub VCS (Sunucu / production ortamı):**
+
+```json
+{
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/fogeto/laravel-server-orchestrator"
+        }
+    ]
+}
+```
+
+> Private repo ise sunucuda GitHub token / SSH key yapılandırması gerekir.
+
+#### Adım 2 — Paketi Yükleyin
 
 ```bash
-composer require fogeto/laravel-server-orchestrator
+# Path repository için:
+composer require fogeto/laravel-server-orchestrator:@dev
+
+# VCS repository için:
+composer require fogeto/laravel-server-orchestrator:dev-main
 ```
 
 > Laravel'in paket auto-discovery özelliği sayesinde ServiceProvider **otomatik** olarak kaydedilir. Ekstra bir kayıt yapmanıza gerek yoktur.
 
-#### Adım 2 — `.env` Dosyasına Prefix Ekleyin
+#### Adım 3 — `.env` Dosyasına Prefix Ekleyin
 
 ```env
 ORCHESTRATOR_PREFIX=projenizin_adi
@@ -98,7 +131,7 @@ ORCHESTRATOR_PREFIX=projenizin_adi
 >
 > Örnekler: `ikbackend`, `hrportal`, `crm`, `ecommerce`
 
-#### Adım 3 — Config Dosyasını Yayınlayın (Opsiyonel)
+#### Adım 4 — Config Dosyasını Yayınlayın (Opsiyonel)
 
 Varsayılan ayarlar çoğu proje için yeterlidir. Özelleştirmek isterseniz:
 
@@ -108,7 +141,7 @@ php artisan vendor:publish --tag=server-orchestrator-config
 
 Bu komut `config/server-orchestrator.php` dosyasını oluşturur.
 
-#### Adım 4 — Doğrulama
+#### Adım 5 — Doğrulama
 
 ```bash
 # Route'ların kayıt olduğunu kontrol edin
@@ -130,11 +163,9 @@ POST      api/wipe-metrics ... Fogeto\ServerOrchestrator\Http\Controllers\Metric
 
 Projenizde daha önce **inline** (elle yazılmış) Prometheus entegrasyonu varsa, `orchestrator:migrate` komutu eski dosyaları otomatik temizler.
 
-#### Adım 1 — Paketi Yükleyin
+#### Adım 1 — Repository Tanımlayın ve Paketi Yükleyin
 
-```bash
-composer require fogeto/laravel-server-orchestrator
-```
+Yukarıdaki [Yeni Proje — Adım 1](#adım-1--repository-tanımlayın) ve [Adım 2](#adım-2--paketi-yükleyin) bölümlerini uygulayın.
 
 #### Adım 2 — Neler Değişeceğini Görün (Dry Run)
 
@@ -288,58 +319,6 @@ http_requests_total{code="200",method="GET",controller="UserController",action="
 http_requests_total{code="404",method="GET",controller="UserController",action="show",endpoint="/api/users/{id}"} 3
 ```
 
-### SQL Sorgu Metrikleri (Otomatik)
-
-`DB::listen` ile her SQL sorgusu otomatik olarak izlenir ve `sql_query_duration_seconds` histogram'\u0131na kaydedilir.
-
-| Metrik | Tip | Açıklama |
-|--------|-----|----------|
-| `sql_query_duration_seconds` | Histogram | SQL sorgu süresi (saniye) |
-
-**Label'lar:**
-
-| Label | Açıklama | Örnek |
-|-------|----------|-------|
-| `operation` | SQL işlem türü (regex ile tespit) | `SELECT`, `INSERT`, `UPDATE`, `DELETE` |
-| `table` | Etkilenen ana tablo adı | `users`, `orders` |
-| `query` | Binding'leri yerleştirilmiş SQL sorgusu | `SELECT * FROM users WHERE id = 1` |
-| `query_hash` | Sorgu metninin MD5 hash'i | `a1b2c3d4e5f6...` |
-
-> **Not:** `query` label'ı yüksek kardinaliteye neden olabilir. Production'da `ORCHESTRATOR_SQL_QUERY_LABEL=false` ile devre dışı bırakılabilir.
-
-> **Not:** `SHOW`, `SET`, `DESCRIBE`, `EXPLAIN` ve `information_schema` içeren sorgular otomatik olarak yok sayılır.
-
-#### Örnek SQL Metrikleri Çıktısı
-
-```
-# HELP sql_query_duration_seconds Duration of SQL queries in seconds.
-# TYPE sql_query_duration_seconds histogram
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM `users` WHERE `id` = 1",query_hash="a1b2c3d4",le="0.005"} 12
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM `users` WHERE `id` = 1",query_hash="a1b2c3d4",le="0.01"} 18
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM `users` WHERE `id` = 1",query_hash="a1b2c3d4",le="+Inf"} 20
-sql_query_duration_seconds_sum{operation="SELECT",table="users",query="SELECT * FROM `users` WHERE `id` = 1",query_hash="a1b2c3d4"} 0.142
-sql_query_duration_seconds_count{operation="SELECT",table="users",query="SELECT * FROM `users` WHERE `id` = 1",query_hash="a1b2c3d4"} 20
-```
-
-### Veritabanı Bağlantı Metrikleri
-
-`/api/metrics` endpoint'i çağrıldığında anlık olarak MySQL/PostgreSQL bağlantı durumunu raporlar.
-
-```
-# HELP db_client_connections_usage Database connections by state
-# TYPE db_client_connections_usage gauge
-db_client_connections_usage{state="idle"} 3
-db_client_connections_usage{state="used"} 2
-
-# HELP db_client_connections_max Maximum pool connections
-# TYPE db_client_connections_max gauge
-db_client_connections_max 151
-
-# HELP db_client_connections_pending_requests Pending connection requests
-# TYPE db_client_connections_pending_requests gauge
-db_client_connections_pending_requests 0
-```
-
 ### Sistem Metrikleri
 
 `/api/metrics` endpoint'i her çağrıldığında anlık olarak hesaplanır.
@@ -350,20 +329,11 @@ db_client_connections_pending_requests 0
 | `process_uptime_seconds` | Gauge | Proses çalışma süresi |
 | `process_memory_usage_bytes` | Gauge | Anlık bellek kullanımı |
 | `process_memory_peak_bytes` | Gauge | En yüksek bellek kullanımı |
-| `db_client_connections_usage` | Gauge | Veritabanı bağlantı kullanımı (label: `state="idle\|used"`) |
-| `db_client_connections_max` | Gauge | Maksimum bağlantı limiti |
-| `db_client_connections_pending_requests` | Gauge | Bekleyen bağlantı istekleri |
+| `db_connections_active` | Gauge | Aktif MySQL bağlantı sayısı |
+| `db_connections_max` | Gauge | Maksimum bağlantı limiti |
 | `php_opcache_enabled` | Gauge | OPcache durumu (1/0) |
 | `php_opcache_hit_rate` | Gauge | OPcache hit oranı (%) |
 | `php_opcache_memory_used_bytes` | Gauge | OPcache bellek kullanımı |
-| `php_fpm_active_processes` | Gauge | Aktif PHP-FPM worker sayısı |
-| `php_fpm_idle_processes` | Gauge | Boştaki PHP-FPM worker sayısı |
-| `php_fpm_total_processes` | Gauge | Toplam PHP-FPM worker sayısı |
-| `php_fpm_max_active_processes` | Gauge | Peak aktif worker (FPM başlangıcından beri) |
-| `php_fpm_accepted_connections` | Gauge | Toplam kabul edilen bağlantı sayısı |
-| `php_fpm_listen_queue` | Gauge | Kuyrukta bekleyen istek sayısı |
-| `php_fpm_max_listen_queue` | Gauge | Peak kuyruk uzunluğu |
-| `php_fpm_slow_requests` | Gauge | Yavaş istek sayısı |
 | `app_health_status` | Gauge | Uygulama sağlığı (1=UP, 0=DOWN) |
 
 > **Not:** `app_health_status` veritabanı bağlantısını kontrol eder. MySQL çalışmıyorsa `0` döner. Bağlantı testi için `fsockopen()` ile 2 saniyelik TCP timeout kullanılır, bu sayede DB timeout'ları metrik endpoint'ini yavaşlatmaz.
@@ -382,10 +352,6 @@ Config dosyasını publish ettikten sonra `config/server-orchestrator.php` üzer
 | `ORCHESTRATOR_PREFIX` | `APP_NAME` | Redis key prefix'i (projeye özel) |
 | `ORCHESTRATOR_REDIS_CONNECTION` | `default` | Kullanılacak Redis bağlantısı |
 | `ORCHESTRATOR_ROUTE_PREFIX` | `api` | Metrik route'larının URL prefix'i |
-| `ORCHESTRATOR_SQL_METRICS` | `true` | SQL sorgu metriklerini açma/kapama |
-| `ORCHESTRATOR_SQL_QUERY_LABEL` | `true` | SQL metnini label olarak ekleme (kardinalite riski!) |
-| `ORCHESTRATOR_FPM_ENABLED` | `true` | PHP-FPM worker metriklerini açma/kapama |
-| `ORCHESTRATOR_FPM_STATUS_URL` | `http://127.0.0.1/fpm-status` | PHP-FPM status endpoint URL'i |
 
 ### Prefix (Redis Key İzolasyonu)
 
@@ -450,29 +416,12 @@ laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
 ],
 ```
 
-### HTTP Histogram Bucket'ları
+### Histogram Bucket'ları
 
-HTTP istek sürelerini gruplamak için kullanılan eşik değerleri (saniye cinsinden):
-
-```php
-'http_histogram_buckets' => [
-    0.001,  // 1ms
-    0.005,  // 5ms
-    0.01,   // 10ms
-    0.05,   // 50ms
-    0.1,    // 100ms
-    0.5,    // 500ms
-    1,      // 1s
-    5,      // 5s
-],
-```
-
-### SQL Histogram Bucket'ları
-
-SQL sorgu sürelerini gruplamak için kullanılan eşik değerleri:
+İstek sürelerini gruplamak için kullanılan eşik değerleri (saniye cinsinden):
 
 ```php
-'sql_histogram_buckets' => [
+'histogram_buckets' => [
     0.005,  // 5ms
     0.01,   // 10ms
     0.025,  // 25ms
@@ -480,76 +429,15 @@ SQL sorgu sürelerini gruplamak için kullanılan eşik değerleri:
     0.1,    // 100ms
     0.25,   // 250ms
     0.5,    // 500ms
-    1,      // 1s
+    1.0,    // 1s
     2.5,    // 2.5s
-    5,      // 5s
-    10,     // 10s
+    5.0,    // 5s
+    10.0,   // 10s
+    30.0,   // 30s
 ],
 ```
 
-### SQL Metrikleri Ayarları
-
-```php
-'sql_metrics' => [
-    // SQL metrik toplama aktif/pasif
-    'enabled' => env('ORCHESTRATOR_SQL_METRICS', true),
-
-    // Sorgu metnini label olarak ekle
-    // Dikkat: Yüksek kardinaliteye neden olabilir
-    'include_query_label' => env('ORCHESTRATOR_SQL_QUERY_LABEL', true),
-
-    // Label'daki sorgu metninin max uzunluğu
-    'query_max_length' => 200,
-
-    // Bu regex pattern'lara uyan sorgular izlenmez
-    'ignore_patterns' => [
-        '/^SHOW\s/i',
-        '/^SET\s/i',
-        '/information_schema/i',
-        '/^DESCRIBE\s/i',
-        '/^EXPLAIN\s/i',
-    ],
-],
-```
-
-### PHP-FPM Metrikleri
-
-PHP-FPM status endpoint'inden worker metrikleri toplanır. **Ön koşul:** PHP-FPM pool config'inizde `pm.status_path` aktif olmalıdır.
-
-```ini
-; /etc/php/8.x/fpm/pool.d/www.conf
-pm.status_path = /fpm-status
-```
-
-Nginx/Apache'de bu path'i sadece localhost'tan erişilebilir yapın:
-
-```nginx
-# Nginx örneği
-location /fpm-status {
-    access_log off;
-    allow 127.0.0.1;
-    deny all;
-    fastcgi_pass unix:/run/php/php-fpm.sock;
-    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-    include fastcgi_params;
-}
-```
-
-Config:
-
-```php
-'fpm' => [
-    'enabled' => env('ORCHESTRATOR_FPM_ENABLED', true),
-
-    // PHP-FPM status endpoint URL'i
-    'status_url' => env('ORCHESTRATOR_FPM_STATUS_URL', 'http://127.0.0.1/fpm-status'),
-
-    // HTTP isteği timeout (saniye)
-    'timeout' => 2,
-],
-```
-
-> **Not:** PHP-FPM status endpoint'i erişilemezse, FPM metrikleri sessizce atlanır — uygulama etkilenmez.
+> **İpucu:** API response süreleriniz genellikle 100ms altındaysa, düşük bucket'lar (`0.001`, `0.0025`) ekleyerek daha hassas ölçüm yapabilirsiniz.
 
 ### Sistem Metrikleri Açma/Kapama
 
@@ -560,9 +448,8 @@ Config:
     'php_info'  => true,   // PHP versiyon bilgisi
     'memory'    => true,   // Bellek kullanımı
     'uptime'    => true,   // Proses çalışma süresi
-    'database'  => true,   // MySQL/PostgreSQL bağlantı metrikleri
+    'database'  => true,   // MySQL bağlantı metrikleri (SHOW STATUS)
     'opcache'   => true,   // OPcache istatistikleri
-    'fpm'       => true,   // PHP-FPM worker metrikleri
     'health'    => true,   // Uygulama sağlık durumu
 ],
 ```
@@ -790,27 +677,6 @@ rate(http_errors_total[5m]) / rate(http_requests_total[5m]) * 100
 
 # En yavaş endpoint'ler (p95)
 histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (endpoint, le))
-
-# DB bağlantı kullanım oranı (%)
-db_client_connections_usage{state="used"} / db_client_connections_max * 100
-
-# PHP-FPM worker kullanım oranı (%)
-php_fpm_active_processes / php_fpm_total_processes * 100
-
-# PHP-FPM kuyruk alarmı (>0 ise worker yetersiz)
-php_fpm_listen_queue > 0
-
-# PHP-FPM peak worker kullanımı
-php_fpm_max_active_processes
-
-# En yavaş SQL sorguları (ortalama süre)
-topk(10, rate(sql_query_duration_seconds_sum[5m]) / rate(sql_query_duration_seconds_count[5m]))
-
-# SQL P95 latency (tabloya göre)
-histogram_quantile(0.95, sum(rate(sql_query_duration_seconds_bucket[5m])) by (table, le))
-
-# SQL sorgu sayısı (operation'a göre)
-sum(rate(sql_query_duration_seconds_count[5m])) by (operation)
 
 # Bellek kullanımı (MB)
 process_memory_usage_bytes / 1024 / 1024

@@ -13,18 +13,13 @@ Aşağıda bir Laravel projesi (prefix: `ikbackend`) için tipik bir `/api/metri
 # TYPE app_health_status gauge
 app_health_status 1
 
-# HELP db_client_connections_usage Database connections by state
-# TYPE db_client_connections_usage gauge
-db_client_connections_usage{state="idle"} 3
-db_client_connections_usage{state="used"} 2
+# HELP db_connections_active Active database connections
+# TYPE db_connections_active gauge
+db_connections_active 5
 
-# HELP db_client_connections_max Maximum pool connections
-# TYPE db_client_connections_max gauge
-db_client_connections_max 151
-
-# HELP db_client_connections_pending_requests Pending connection requests
-# TYPE db_client_connections_pending_requests gauge
-db_client_connections_pending_requests 0
+# HELP db_connections_max Maximum database connection limit
+# TYPE db_connections_max gauge
+db_connections_max 151
 
 # HELP http_errors_total Total number of HTTP errors (4xx and 5xx).
 # TYPE http_errors_total counter
@@ -33,25 +28,33 @@ http_errors_total{code="500",method="POST",controller="PaymentController",action
 
 # HELP http_request_duration_seconds The duration of HTTP requests processed by a Laravel application.
 # TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.001"} 0
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.005"} 2
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.01"} 8
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.005"} 0
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.01"} 2
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.025"} 8
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.05"} 15
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.1"} 20
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.25"} 22
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.5"} 22
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="1"} 22
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="2.5"} 22
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="5"} 22
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="10"} 22
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="30"} 22
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="+Inf"} 22
 http_request_duration_seconds_sum{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 0.532
 http_request_duration_seconds_count{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 22
-http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.001"} 0
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.005"} 0
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.01"} 0
+http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.025"} 1
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.05"} 3
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.1"} 5
+http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.25"} 5
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="0.5"} 5
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="1"} 5
+http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="2.5"} 5
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="5"} 5
+http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="10"} 5
+http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="30"} 5
 http_request_duration_seconds_bucket{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users",le="+Inf"} 5
 http_request_duration_seconds_sum{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users"} 0.187
 http_request_duration_seconds_count{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users"} 5
@@ -79,38 +82,6 @@ php_opcache_hit_rate 98.72
 # TYPE php_opcache_memory_used_bytes gauge
 php_opcache_memory_used_bytes 52428800
 
-# HELP php_fpm_active_processes Number of active PHP-FPM worker processes
-# TYPE php_fpm_active_processes gauge
-php_fpm_active_processes 3
-
-# HELP php_fpm_idle_processes Number of idle PHP-FPM worker processes
-# TYPE php_fpm_idle_processes gauge
-php_fpm_idle_processes 5
-
-# HELP php_fpm_total_processes Total number of PHP-FPM worker processes
-# TYPE php_fpm_total_processes gauge
-php_fpm_total_processes 8
-
-# HELP php_fpm_max_active_processes Maximum number of active processes since FPM started
-# TYPE php_fpm_max_active_processes gauge
-php_fpm_max_active_processes 7
-
-# HELP php_fpm_accepted_connections Total number of accepted connections
-# TYPE php_fpm_accepted_connections gauge
-php_fpm_accepted_connections 45873
-
-# HELP php_fpm_listen_queue Number of requests in the listen queue
-# TYPE php_fpm_listen_queue gauge
-php_fpm_listen_queue 0
-
-# HELP php_fpm_max_listen_queue Maximum number of requests in the listen queue since FPM started
-# TYPE php_fpm_max_listen_queue gauge
-php_fpm_max_listen_queue 2
-
-# HELP php_fpm_slow_requests Total number of slow requests
-# TYPE php_fpm_slow_requests gauge
-php_fpm_slow_requests 0
-
 # HELP process_memory_peak_bytes Peak memory usage in bytes
 # TYPE process_memory_peak_bytes gauge
 process_memory_peak_bytes 33554432
@@ -122,37 +93,6 @@ process_memory_usage_bytes 20971520
 # HELP process_uptime_seconds Process uptime in seconds
 # TYPE process_uptime_seconds gauge
 process_uptime_seconds 0.245
-
-# HELP sql_query_duration_seconds Duration of SQL queries in seconds.
-# TYPE sql_query_duration_seconds histogram
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="0.005"} 5
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="0.01"} 12
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="0.025"} 18
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="0.05"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="0.1"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="0.25"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="0.5"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="1"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="2.5"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="5"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="10"} 20
-sql_query_duration_seconds_bucket{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890",le="+Inf"} 20
-sql_query_duration_seconds_sum{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890"} 0.142
-sql_query_duration_seconds_count{operation="SELECT",table="users",query="SELECT * FROM users WHERE id = 1",query_hash="a1b2c3d4e5f67890abcdef1234567890"} 20
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="0.005"} 0
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="0.01"} 2
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="0.025"} 4
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="0.05"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="0.1"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="0.25"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="0.5"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="1"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="2.5"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="5"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="10"} 5
-sql_query_duration_seconds_bucket{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f",le="+Inf"} 5
-sql_query_duration_seconds_sum{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f"} 0.058
-sql_query_duration_seconds_count{operation="INSERT",table="orders",query="INSERT INTO orders (user_id, total) VALUES (1, 250.00)",query_hash="f0e1d2c3b4a5968778695a4b3c2d1e0f"} 5
 ```
 
 ---
@@ -274,11 +214,11 @@ process_memory_usage_bytes 14680064
 # ... diğer gauge'lar normal
 ```
 
-**Dikkat:** `db_client_connections_usage`, `db_client_connections_max` ve `db_client_connections_pending_requests` metrikleri tamamen kaybolur — `0` değil, hiç üretilmez. Bu, Prometheus'ta `absent()` fonksiyonu ile alert kurmanızı sağlar:
+**Dikkat:** `db_connections_active` ve `db_connections_max` metrikleri tamamen kaybolur — `0` değil, hiç üretilmez. Bu, Prometheus'ta `absent()` fonksiyonu ile alert kurmanızı sağlar:
 
 ```promql
 # DB metrikleri kaybolursa uyar
-absent(db_client_connections_usage) == 1
+absent(db_connections_active) == 1
 ```
 
 ---
@@ -362,35 +302,10 @@ topk(5,
 ### DB Bağlantı Kullanım Oranı
 
 ```promql
-db_client_connections_usage{job="ikbackend",state="used"}
+db_connections_active{job="ikbackend"}
 /
-db_client_connections_max{job="ikbackend"}
+db_connections_max{job="ikbackend"}
 * 100
-```
-
-### SQL Sorgu Performansı
-
-```promql
-# En yavaş SQL sorguları (ortalama süre)
-topk(10,
-  rate(sql_query_duration_seconds_sum{job="ikbackend"}[5m])
-  /
-  rate(sql_query_duration_seconds_count{job="ikbackend"}[5m])
-)
-```
-
-### SQL P95 Latency (Tabloya Göre)
-
-```promql
-histogram_quantile(0.95,
-  sum(rate(sql_query_duration_seconds_bucket{job="ikbackend"}[5m])) by (table, le)
-)
-```
-
-### SQL Sorgu Sayısı (Operation'a Göre)
-
-```promql
-sum(rate(sql_query_duration_seconds_count{job="ikbackend"}[5m])) by (operation)
 ```
 
 ### Sağlık Durumu Alert
@@ -426,15 +341,11 @@ KEYS *prometheus:ikbackend:*
 # 4) "laravel_database_prometheus:ikbackend:gauges:process_memory_usage_bytes"
 # 5) "laravel_database_prometheus:ikbackend:gauges:process_memory_peak_bytes"
 # 6) "laravel_database_prometheus:ikbackend:gauges:app_health_status"
-# 7) "laravel_database_prometheus:ikbackend:gauges:db_client_connections_usage"
-# 8) "laravel_database_prometheus:ikbackend:gauges:db_client_connections_max"
-# 9) "laravel_database_prometheus:ikbackend:gauges:db_client_connections_pending_requests"
-# 10) "laravel_database_prometheus:ikbackend:counters:meta"
-# 11) "laravel_database_prometheus:ikbackend:counters:http_requests_total"
-# 12) "laravel_database_prometheus:ikbackend:counters:http_errors_total"
-# 13) "laravel_database_prometheus:ikbackend:histograms:meta"
-# 14) "laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds"
-# 15) "laravel_database_prometheus:ikbackend:histograms:sql_query_duration_seconds"
+# 7) "laravel_database_prometheus:ikbackend:counters:meta"
+# 8) "laravel_database_prometheus:ikbackend:counters:http_requests_total"
+# 9) "laravel_database_prometheus:ikbackend:counters:http_errors_total"
+# 10) "laravel_database_prometheus:ikbackend:histograms:meta"
+# 11) "laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds"
 
 # Bir counter hash'inin içeriğine bak
 HGETALL laravel_database_prometheus:ikbackend:counters:http_requests_total

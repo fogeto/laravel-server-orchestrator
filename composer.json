@@ -5,7 +5,10 @@
     "license": "MIT",
     "authors": [
         {
-            "name": "AYS Yazılım"
+            "name": "FOGETO - Mustafa Oğuz BARAN",
+            "email": "mustafaoguzbaran@fogeto.com",
+            "homepage": "https://fogeto.com",
+            "role": "CEO & Lead Developer"
         }
     ],
     "require": {
