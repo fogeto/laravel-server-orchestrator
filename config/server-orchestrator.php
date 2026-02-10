@@ -42,6 +42,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Redis Key TTL (Saniye)
+    |--------------------------------------------------------------------------
+    |
+    | Metrik key'lerinin Redis'te ne kadar süre tutulacağı (saniye).
+    | Varsayılan: 604800 (7 gün). Her yazma işleminde TTL yenilenir,
+    | böylece aktif metrikler canlı kalır, kullanılmayan metrikler
+    | otomatik olarak temizlenir.
+    |
+    | null yaparsanız TTL uygulanmaz (sonsuz saklama).
+    |
+    */
+    'metrics_ttl' => env('ORCHESTRATOR_METRICS_TTL', 604800),
+
+    /*
+    |--------------------------------------------------------------------------
     | Route Ayarları
     |--------------------------------------------------------------------------
     |

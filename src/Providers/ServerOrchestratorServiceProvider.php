@@ -33,7 +33,7 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
                 $sanitized = strtolower(preg_replace('/[^a-zA-Z0-9_-]/', '_', $rawPrefix));
                 $prefix = 'prometheus:' . $sanitized . ':';
 
-                $adapter = new PredisAdapter($redisConnection, $prefix);
+                $adapter = new PredisAdapter($redisConnection, $prefix, config('server-orchestrator.metrics_ttl', 604800));
             } catch (\Throwable $e) {
                 report($e);
                 $adapter = new InMemory();

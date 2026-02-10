@@ -10,12 +10,16 @@ class PredisAdapter implements Adapter
 {
     private string $prefix;
 
+    private ?int $ttl;
+
     /**
      * @param  string  $prefix  Redis key prefix'i (proje izolasyonu için)
+     * @param  int|null  $ttl  Redis key TTL (saniye). null ise TTL uygulanmaz.
      */
-    public function __construct(private Connection $redis, string $prefix = 'prometheus:app:')
+    public function __construct(private Connection $redis, string $prefix = 'prometheus:app:', ?int $ttl = 604800)
     {
         $this->prefix = $prefix;
+        $this->ttl = $ttl;
     }
 
     public function wipeStorage(): void
@@ -74,6 +78,8 @@ LUA;
             'help' => $data['help'],
             'labelNames' => $data['labelNames'],
         ]));
+
+        $this->applyTtl($key, $metaKey);
     }
 
     public function updateCounter(array $data): void
@@ -88,6 +94,8 @@ LUA;
             'help' => $data['help'],
             'labelNames' => $data['labelNames'],
         ]));
+
+        $this->applyTtl($key, $metaKey);
     }
 
     public function updateHistogram(array $data): void
@@ -119,6 +127,8 @@ LUA;
             'labelNames' => $data['labelNames'],
             'buckets' => $data['buckets'],
         ]));
+
+        $this->applyTtl($key, $metaKey);
     }
 
     public function updateSummary(array $data): void
@@ -315,6 +325,21 @@ LUA;
         }
 
         return $metrics;
+    }
+
+    /**
+     * Verilen key'lere TTL uygula.
+     * TTL null ise (sonsuz saklama) herhangi bir işlem yapılmaz.
+     */
+    private function applyTtl(string ...$keys): void
+    {
+        if ($this->ttl === null) {
+            return;
+        }
+
+        foreach ($keys as $key) {
+            $this->redis->expire($key, $this->ttl);
+        }
     }
 
     /**
