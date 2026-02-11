@@ -16,19 +16,6 @@ use Prometheus\Storage\InMemory;
 
 class ServerOrchestratorServiceProvider extends ServiceProvider
 {
-    /**
-     * SQL observation buffer — istek boyunca biriktirilir, sonunda flush edilir.
-     * Her giriş: ['duration' => float, 'labels' => array]
-     *
-     * @var array<int, array{duration: float, labels: array}>
-     */
-    private static array $sqlBuffer = [];
-
-    /**
-     * Buffer flush'ı zaten kayıtlı mı?
-     */
-    private static bool $flushRegistered = false;
-
     public function register(): void
     {
         $this->mergeConfigFrom(
@@ -96,17 +83,31 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
     /**
      * SQL sorgu dinleyicisini kaydet.
      *
-     * Performans optimizasyonu: Sorgular istek boyunca statik buffer'a biriktirilir,
-     * istek sonunda (app terminating) topluca Redis'e flush edilir.
-     * Bu sayede N sorgu = 1 Redis pipeline round-trip (N ayrı round-trip yerine).
+     * Her SQL sorgusu anında Redis'e yazılır (PrometheusMiddleware ile aynı yaklaşım).
+     * Histogram nesnesi lazy olarak oluşturulur ve closure içinde cache'lenir.
+     * PredisAdapter pipeline optimizasyonu ile her observe ~1 round-trip.
      */
     private function registerSqlListener(): void
     {
         $ignorePatterns = config('server-orchestrator.sql_metrics.ignore_patterns', []);
         $includeQuery = config('server-orchestrator.sql_metrics.include_query_label', false);
         $maxLength = config('server-orchestrator.sql_metrics.query_max_length', 200);
+        $buckets = config('server-orchestrator.sql_metrics.histogram_buckets', [
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1,
+            0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+        ]);
 
-        DB::listen(function (QueryExecuted $query) use ($ignorePatterns, $includeQuery, $maxLength) {
+        $labelNames = ['operation', 'table', 'query_hash'];
+        if ($includeQuery) {
+            $labelNames[] = 'query';
+        }
+
+        // Histogram lazy olarak oluşturulacak (ilk SQL sorgusunda)
+        $histogram = null;
+
+        DB::listen(function (QueryExecuted $query) use (
+            $ignorePatterns, $includeQuery, $maxLength, $buckets, $labelNames, &$histogram
+        ) {
             $sql = $query->sql;
 
             // Ignore patterns — gereksiz sorguları filtrele
@@ -116,84 +117,49 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
                 }
             }
 
-            // Parse SQL — operation, table, query_hash
-            $parsed = SqlParser::parse($sql);
+            // Lazy histogram oluşturma — ilk geçerli sorguda bir kez çalışır
+            if ($histogram === null) {
+                try {
+                    $registry = app(CollectorRegistry::class);
+                    $histogram = $registry->getOrRegisterHistogram(
+                        'sql',
+                        'query_duration_seconds',
+                        'Duration of SQL queries in seconds.',
+                        $labelNames,
+                        $buckets
+                    );
+                } catch (\Throwable $e) {
+                    report($e);
 
-            // Duration: QueryExecuted->time milisaniye, Prometheus saniye ister
-            $duration = $query->time / 1000;
-
-            // Label'lar
-            $labels = [
-                $parsed['operation'],
-                $parsed['table'],
-                $parsed['query_hash'],
-            ];
-
-            // Opsiyonel query label (dikkat: yüksek cardinality)
-            if ($includeQuery) {
-                $labels[] = SqlParser::sanitizeForLabel($sql, $maxLength);
+                    return;
+                }
             }
 
-            // Buffer'a ekle — flush sonra yapılacak
-            self::$sqlBuffer[] = [
-                'duration' => $duration,
-                'labels' => $labels,
-            ];
+            try {
+                // Parse SQL — operation, table, query_hash
+                $parsed = SqlParser::parse($sql);
 
-            // Terminating callback'i sadece bir kez kaydet
-            if (! self::$flushRegistered) {
-                self::$flushRegistered = true;
-                app()->terminating(function () {
-                    self::flushSqlMetrics();
-                });
+                // Duration: QueryExecuted->time milisaniye, Prometheus saniye ister
+                $duration = $query->time / 1000;
+
+                // Label'lar
+                $labels = [
+                    $parsed['operation'],
+                    $parsed['table'],
+                    $parsed['query_hash'],
+                ];
+
+                // Opsiyonel query label (dikkat: yüksek cardinality)
+                if ($includeQuery) {
+                    $labels[] = SqlParser::sanitizeForLabel($sql, $maxLength);
+                }
+
+                // Doğrudan Redis'e yaz — PredisAdapter pipeline ile optimize eder
+                $histogram->observe($duration, $labels);
+            } catch (\Throwable $e) {
+                // Sessizce devam et — uygulama crash olmamalı
             }
         });
-    }
-
-    /**
-     * Birikmiş SQL metriklerini topluca Redis'e yaz.
-     *
-     * Tek seferde tüm observe'ları yapar. PredisAdapter'ın pipeline
-     * optimizasyonu ile birlikte çalışır.
-     */
-    private static function flushSqlMetrics(): void
-    {
-        if (empty(self::$sqlBuffer)) {
-            return;
-        }
-
-        try {
-            $registry = app(CollectorRegistry::class);
-
-            $includeQuery = config('server-orchestrator.sql_metrics.include_query_label', false);
-            $labelNames = ['operation', 'table', 'query_hash'];
-            if ($includeQuery) {
-                $labelNames[] = 'query';
-            }
-
-            $buckets = config('server-orchestrator.sql_metrics.histogram_buckets', [
-                0.001, 0.005, 0.01, 0.025, 0.05, 0.1,
-                0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
-            ]);
-
-            $histogram = $registry->getOrRegisterHistogram(
-                'sql',
-                'query_duration_seconds',
-                'Duration of SQL queries in seconds.',
-                $labelNames,
-                $buckets
-            );
-
-            foreach (self::$sqlBuffer as $observation) {
-                $histogram->observe($observation['duration'], $observation['labels']);
-            }
-        } catch (\Throwable $e) {
-            // Sessizce devam et — uygulama crash olmamalı
-        } finally {
-            // Buffer'ı temizle (Octane/Swoole uyumluluğu)
-            self::$sqlBuffer = [];
-            self::$flushRegistered = false;
-        }
     }
 
     /**

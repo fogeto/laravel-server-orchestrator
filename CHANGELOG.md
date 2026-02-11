@@ -3,6 +3,18 @@
 Tüm önemli değişiklikler bu dosyada belgelenir.  
 Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uygundur.
 
+## [1.0.5] - 2026-02-11
+
+### Fixed
+- **SQL metrik verisi boş gelme sorunu çözüldü:** Buffer/flush pattern kaldırıldı, immediate observation'a geçildi
+- Her SQL sorgusu anında Redis'e yazılır (PrometheusMiddleware ile aynı güvenilir yaklaşım)
+- `app()->terminating()` callback zamanlaması kaynaklı veri kaybı problemi ortadan kalktı
+
+### Changed
+- Histogram nesnesi lazy olarak oluşturulur (ilk geçerli SQL sorgusunda) ve closure içinde cache'lenir
+- Hata raporlama iyileştirildi: histogram oluşturma hatası `report()` ile loglanıyor
+- Statik `$sqlBuffer` ve `$flushRegistered` property'leri kaldırıldı (artık gerekli değil)
+
 ## [1.0.4] - 2026-02-11
 
 ### Added
