@@ -113,6 +113,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | SQL Query Metrikleri
+    |--------------------------------------------------------------------------
+    |
+    | DB::listen() ile otomatik olarak SQL sorgu metriklerini toplar.
+    | - enabled: SQL metrik toplama aktif/pasif
+    | - include_query_label: SQL sorgusunun kendisini label olarak ekle
+    |   (dikkat: yüksek cardinality — sadece debug için önerilir)
+    | - query_max_length: Query label'ı için maksimum karakter uzunluğu
+    | - ignore_patterns: Bu regex pattern'lara uyan sorgular izlenmez
+    | - histogram_buckets: SQL sorgu süreleri için bucket sınırları (saniye)
+    |
+    */
+    'sql_metrics' => [
+        'enabled' => env('ORCHESTRATOR_SQL_ENABLED', true),
+        'include_query_label' => env('ORCHESTRATOR_SQL_QUERY_LABEL', false),
+        'query_max_length' => 200,
+        'ignore_patterns' => [
+            '/^SHOW\b/i',
+            '/^SET\b/i',
+            '/^DESCRIBE\b/i',
+            '/^EXPLAIN\b/i',
+            '/\bSAVEPOINT\b/i',
+            '/\bRELEASE SAVEPOINT\b/i',
+            '/\bmigrations\b/i',
+        ],
+        'histogram_buckets' => [
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1,
+            0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sistem Metrikleri
     |--------------------------------------------------------------------------
     |
