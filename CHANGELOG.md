@@ -3,6 +3,12 @@
 Tüm önemli değişiklikler bu dosyada belgelenir.  
 Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uygundur.
 
+## [1.0.6] - 2026-02-11
+
+### Fixed
+- **SQL observe() hata raporlaması eklendi:** Redis bağlantı veya serialization hataları artık `report()` ile loglanıyor (flood önlemek için istek başına sadece ilk hata)
+- Production debug kolaylığı: hata artık sessizce yutulmuyor, Laravel log'larından izlenebilir
+
 ## [1.0.5] - 2026-02-11
 
 ### Fixed

@@ -157,7 +157,12 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
                 // Doğrudan Redis'e yaz — PredisAdapter pipeline ile optimize eder
                 $histogram->observe($duration, $labels);
             } catch (\Throwable $e) {
-                // Sessizce devam et — uygulama crash olmamalı
+                // İlk hatayı logla — flood önlemek için sadece bir kez
+                static $observeErrorReported = false;
+                if (! $observeErrorReported) {
+                    report($e);
+                    $observeErrorReported = true;
+                }
             }
         });
     }
