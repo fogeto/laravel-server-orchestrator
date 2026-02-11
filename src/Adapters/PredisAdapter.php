@@ -158,192 +158,193 @@ LUA;
     /**
      * Tüm metrikleri topla ve döndür.
      *
+     * Redis okumalarını 2 pipeline'a sıkıştırır:
+     *   Pipeline 1: Tüm meta key'leri (gauges:meta, counters:meta, histograms:meta)
+     *   Pipeline 2: Tüm data key'leri (her metriğin veri hash'i)
+     *
+     * Optimizasyon: ~16 sequential round-trip → 2 pipelined round-trip.
+     *
      * @return MetricFamilySamples[]
      */
     public function collect(bool $sortMetrics = true): array
     {
-        $metrics = [];
+        $client = $this->redis->client();
 
-        $metrics = array_merge($metrics, $this->collectGauges());
-        $metrics = array_merge($metrics, $this->collectCounters());
-        $metrics = array_merge($metrics, $this->collectHistograms());
+        // Phase 1: Tüm meta key'lerini tek pipeline'da oku (1 round-trip)
+        $metaResults = $client->pipeline(function ($pipe) {
+            $pipe->hgetall($this->prefix . 'gauges:meta');
+            $pipe->hgetall($this->prefix . 'counters:meta');
+            $pipe->hgetall($this->prefix . 'histograms:meta');
+        });
+
+        $allMetas = [
+            'gauge' => $this->ensureArray($metaResults[0] ?? []),
+            'counter' => $this->ensureArray($metaResults[1] ?? []),
+            'histogram' => $this->ensureArray($metaResults[2] ?? []),
+        ];
+
+        // Data key sıralamasını oluştur
+        $dataOrder = [];
+        foreach ($allMetas as $type => $metas) {
+            $typeKey = $type . 's'; // gauge→gauges, counter→counters, histogram→histograms
+            foreach ($metas as $name => $metaJson) {
+                $dataOrder[] = [
+                    'type' => $type,
+                    'metaJson' => $metaJson,
+                    'key' => $this->prefix . $typeKey . ':' . $name,
+                ];
+            }
+        }
+
+        if (empty($dataOrder)) {
+            return [];
+        }
+
+        // Phase 2: Tüm data key'lerini tek pipeline'da oku (1 round-trip)
+        $dataResults = $client->pipeline(function ($pipe) use ($dataOrder) {
+            foreach ($dataOrder as $item) {
+                $pipe->hgetall($item['key']);
+            }
+        });
+
+        // Phase 3: MetricFamilySamples oluştur
+        $metrics = [];
+        foreach ($dataOrder as $i => $item) {
+            $meta = json_decode($item['metaJson'], true);
+            $values = $this->ensureArray($dataResults[$i] ?? []);
+
+            $metrics[] = match ($item['type']) {
+                'gauge', 'counter' => $this->buildSimpleSamples($meta, $values, $item['type']),
+                'histogram' => $this->buildHistogramSamples($meta, $values),
+            };
+        }
 
         if ($sortMetrics) {
-            usort($metrics, fn($a, $b) => strcmp($a->getName(), $b->getName()));
+            usort($metrics, fn ($a, $b) => strcmp($a->getName(), $b->getName()));
         }
 
         return $metrics;
     }
 
     /**
-     * @return MetricFamilySamples[]
+     * Gauge veya Counter için MetricFamilySamples oluştur.
      */
-    private function collectGauges(): array
+    private function buildSimpleSamples(array $meta, array $values, string $type): MetricFamilySamples
     {
-        $metrics = [];
-        $metaKey = $this->prefix . 'gauges:meta';
-        $metas = $this->redis->hgetall($metaKey);
-
-        foreach ($metas as $name => $metaJson) {
-            $meta = json_decode($metaJson, true);
-            $key = $this->prefix . 'gauges:' . $name;
-            $values = $this->redis->hgetall($key);
-
-            $samples = [];
-            foreach ($values as $labelKey => $value) {
-                $samples[] = [
-                    'name' => $meta['name'],
-                    'labelNames' => [],
-                    'labelValues' => $this->decodeLabelValues($labelKey),
-                    'value' => (float) $value,
-                ];
-            }
-
-            $metrics[] = new MetricFamilySamples([
+        $samples = [];
+        foreach ($values as $labelKey => $value) {
+            $samples[] = [
                 'name' => $meta['name'],
-                'type' => 'gauge',
-                'help' => $meta['help'],
-                'labelNames' => $meta['labelNames'],
-                'samples' => $samples,
-            ]);
+                'labelNames' => [],
+                'labelValues' => $this->decodeLabelValues($labelKey),
+                'value' => (float) $value,
+            ];
         }
 
-        return $metrics;
+        return new MetricFamilySamples([
+            'name' => $meta['name'],
+            'type' => $type,
+            'help' => $meta['help'],
+            'labelNames' => $meta['labelNames'],
+            'samples' => $samples,
+        ]);
     }
 
     /**
-     * @return MetricFamilySamples[]
+     * Histogram için MetricFamilySamples oluştur.
+     *
+     * ÖNEMLİ: labelKey kendisi base64 değerlerini ':' ile birleştirir,
+     * bu yüzden suffix'i sondan ayırmak gerekiyor (explode kullanma!).
      */
-    private function collectCounters(): array
+    private function buildHistogramSamples(array $meta, array $values): MetricFamilySamples
     {
-        $metrics = [];
-        $metaKey = $this->prefix . 'counters:meta';
-        $metas = $this->redis->hgetall($metaKey);
+        // Label değerlerine göre grupla
+        $grouped = [];
+        foreach ($values as $field => $value) {
+            if (str_ends_with($field, ':sum')) {
+                $labelKey = substr($field, 0, -4);
 
-        foreach ($metas as $name => $metaJson) {
-            $meta = json_decode($metaJson, true);
-            $key = $this->prefix . 'counters:' . $name;
-            $values = $this->redis->hgetall($key);
-
-            $samples = [];
-            foreach ($values as $labelKey => $value) {
-                $samples[] = [
-                    'name' => $meta['name'],
-                    'labelNames' => [],
-                    'labelValues' => $this->decodeLabelValues($labelKey),
-                    'value' => (float) $value,
-                ];
-            }
-
-            $metrics[] = new MetricFamilySamples([
-                'name' => $meta['name'],
-                'type' => 'counter',
-                'help' => $meta['help'],
-                'labelNames' => $meta['labelNames'],
-                'samples' => $samples,
-            ]);
-        }
-
-        return $metrics;
-    }
-
-    /**
-     * @return MetricFamilySamples[]
-     */
-    private function collectHistograms(): array
-    {
-        $metrics = [];
-        $metaKey = $this->prefix . 'histograms:meta';
-        $metas = $this->redis->hgetall($metaKey);
-
-        foreach ($metas as $name => $metaJson) {
-            $meta = json_decode($metaJson, true);
-            $key = $this->prefix . 'histograms:' . $name;
-            $values = $this->redis->hgetall($key);
-
-            // Label değerlerine göre grupla
-            // ÖNEMLİ: labelKey kendisi base64 değerlerini ':' ile birleştirir,
-            // bu yüzden suffix'i sondan ayırmak gerekiyor (explode kullanma!).
-            $grouped = [];
-            foreach ($values as $field => $value) {
-                if (str_ends_with($field, ':sum')) {
-                    $labelKey = substr($field, 0, -4);
-
-                    if (! isset($grouped[$labelKey])) {
-                        $grouped[$labelKey] = ['sum' => 0, 'count' => 0, 'buckets' => []];
-                    }
-
-                    $grouped[$labelKey]['sum'] = (float) $value;
-                } elseif (str_ends_with($field, ':count')) {
-                    $labelKey = substr($field, 0, -6);
-
-                    if (! isset($grouped[$labelKey])) {
-                        $grouped[$labelKey] = ['sum' => 0, 'count' => 0, 'buckets' => []];
-                    }
-
-                    $grouped[$labelKey]['count'] = (int) $value;
-                } elseif (preg_match('/^(.+):bucket:([^:]+)$/', $field, $matches)) {
-                    $labelKey = $matches[1];
-                    $le = $matches[2];
-
-                    if (! isset($grouped[$labelKey])) {
-                        $grouped[$labelKey] = ['sum' => 0, 'count' => 0, 'buckets' => []];
-                    }
-
-                    $grouped[$labelKey]['buckets'][$le] = (int) $value;
-                }
-            }
-
-            // Her label grubu için Prometheus sample'ları oluştur
-            $samples = [];
-            foreach ($grouped as $labelKey => $data) {
-                $labelValues = $this->decodeLabelValues($labelKey);
-
-                // Bucket sample'ları (kümülatif)
-                foreach ($meta['buckets'] as $bucket) {
-                    $samples[] = [
-                        'name' => $meta['name'] . '_bucket',
-                        'labelNames' => ['le'],
-                        'labelValues' => array_merge($labelValues, [(string) $bucket]),
-                        'value' => $data['buckets'][(string) $bucket] ?? 0,
-                    ];
+                if (! isset($grouped[$labelKey])) {
+                    $grouped[$labelKey] = ['sum' => 0, 'count' => 0, 'buckets' => []];
                 }
 
-                // +Inf bucket
+                $grouped[$labelKey]['sum'] = (float) $value;
+            } elseif (str_ends_with($field, ':count')) {
+                $labelKey = substr($field, 0, -6);
+
+                if (! isset($grouped[$labelKey])) {
+                    $grouped[$labelKey] = ['sum' => 0, 'count' => 0, 'buckets' => []];
+                }
+
+                $grouped[$labelKey]['count'] = (int) $value;
+            } elseif (preg_match('/^(.+):bucket:([^:]+)$/', $field, $matches)) {
+                $labelKey = $matches[1];
+                $le = $matches[2];
+
+                if (! isset($grouped[$labelKey])) {
+                    $grouped[$labelKey] = ['sum' => 0, 'count' => 0, 'buckets' => []];
+                }
+
+                $grouped[$labelKey]['buckets'][$le] = (int) $value;
+            }
+        }
+
+        // Her label grubu için Prometheus sample'ları oluştur
+        $samples = [];
+        foreach ($grouped as $labelKey => $data) {
+            $labelValues = $this->decodeLabelValues($labelKey);
+
+            // Bucket sample'ları (kümülatif)
+            foreach ($meta['buckets'] as $bucket) {
                 $samples[] = [
                     'name' => $meta['name'] . '_bucket',
                     'labelNames' => ['le'],
-                    'labelValues' => array_merge($labelValues, ['+Inf']),
-                    'value' => $data['count'],
-                ];
-
-                // Sum
-                $samples[] = [
-                    'name' => $meta['name'] . '_sum',
-                    'labelNames' => [],
-                    'labelValues' => $labelValues,
-                    'value' => $data['sum'],
-                ];
-
-                // Count
-                $samples[] = [
-                    'name' => $meta['name'] . '_count',
-                    'labelNames' => [],
-                    'labelValues' => $labelValues,
-                    'value' => $data['count'],
+                    'labelValues' => array_merge($labelValues, [(string) $bucket]),
+                    'value' => $data['buckets'][(string) $bucket] ?? 0,
                 ];
             }
 
-            $metrics[] = new MetricFamilySamples([
-                'name' => $meta['name'],
-                'type' => 'histogram',
-                'help' => $meta['help'],
-                'labelNames' => $meta['labelNames'],
-                'samples' => $samples,
-            ]);
+            // +Inf bucket
+            $samples[] = [
+                'name' => $meta['name'] . '_bucket',
+                'labelNames' => ['le'],
+                'labelValues' => array_merge($labelValues, ['+Inf']),
+                'value' => $data['count'],
+            ];
+
+            // Sum
+            $samples[] = [
+                'name' => $meta['name'] . '_sum',
+                'labelNames' => [],
+                'labelValues' => $labelValues,
+                'value' => $data['sum'],
+            ];
+
+            // Count
+            $samples[] = [
+                'name' => $meta['name'] . '_count',
+                'labelNames' => [],
+                'labelValues' => $labelValues,
+                'value' => $data['count'],
+            ];
         }
 
-        return $metrics;
+        return new MetricFamilySamples([
+            'name' => $meta['name'],
+            'type' => 'histogram',
+            'help' => $meta['help'],
+            'labelNames' => $meta['labelNames'],
+            'samples' => $samples,
+        ]);
+    }
+
+    /**
+     * Pipeline sonucunun array olduğunu garanti et.
+     * Predis bazı edge case'lerde null veya Status dönebilir.
+     */
+    private function ensureArray(mixed $result): array
+    {
+        return is_array($result) ? $result : [];
     }
 
     /**

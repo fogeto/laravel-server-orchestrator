@@ -24,9 +24,19 @@ class MetricsController extends Controller
         $renderer = new RenderTextFormat();
         $result = $renderer->render($this->registry->getMetricFamilySamples());
 
-        return response($result, 200, [
+        $headers = [
             'Content-Type' => RenderTextFormat::MIME_TYPE,
-        ]);
+        ];
+
+        // Gzip sıkıştırma — büyük response'larda ~90% boyut kazancı sağlar.
+        // Prometheus Accept-Encoding: gzip destekler.
+        if (str_contains($request->header('Accept-Encoding', ''), 'gzip') && function_exists('gzencode')) {
+            $result = gzencode($result, 6);
+            $headers['Content-Encoding'] = 'gzip';
+            $headers['Vary'] = 'Accept-Encoding';
+        }
+
+        return response($result, 200, $headers);
     }
 
     /**
@@ -61,11 +71,10 @@ class MetricsController extends Controller
             $this->collectMemory();
         }
 
-        // DB gerektiren metrikler — önce bağlantıyı test et
-        $dbAvailable = $this->isDbReachable();
-
-        if ($dbAvailable && ($config['database'] ?? true)) {
-            $this->collectDatabaseMetrics();
+        // DB metrikleri — başarılıysa health=UP, değilse health=DOWN
+        $dbAvailable = false;
+        if (($config['database'] ?? true) && $this->isDbReachable()) {
+            $dbAvailable = $this->collectDatabaseMetrics();
         }
 
         if ($config['opcache'] ?? true) {
@@ -126,8 +135,10 @@ class MetricsController extends Controller
 
     /**
      * MySQL veritabanı bağlantı metrikleri.
+     *
+     * @return bool DB'den başarıyla veri alındıysa true
      */
-    private function collectDatabaseMetrics(): void
+    private function collectDatabaseMetrics(): bool
     {
         try {
             $dbConnections = DB::select("SHOW STATUS LIKE 'Threads_connected'");
@@ -150,8 +161,11 @@ class MetricsController extends Controller
                 );
                 $gauge->set((int) $dbMaxConnections[0]->Value);
             }
+
+            return true;
         } catch (\Exception $e) {
             // MySQL dışı veritabanları veya bağlantı hatası — sessizce devam et
+            return false;
         }
     }
 
@@ -195,28 +209,19 @@ class MetricsController extends Controller
     }
 
     /**
-     * Uygulama sağlık durumu (DB bağlantısı üzerinden).
+     * Uygulama sağlık durumu.
+     *
+     * collectDatabaseMetrics() zaten DB bağlantısını doğruladığı için
+     * burada tekrar getPdo() çağrısı yapılmaz (redundant round-trip eliminasyonu).
      */
-    private function collectHealth(bool $dbAvailable = false): void
+    private function collectHealth(bool $dbAvailable): void
     {
         $gauge = $this->registry->getOrRegisterGauge(
             'app',
             'health_status',
             'Application health status (1=UP, 0=DOWN)'
         );
-
-        if ($dbAvailable) {
-            try {
-                DB::connection()->getPdo();
-                $gauge->set(1);
-
-                return;
-            } catch (\Exception $e) {
-                // fall through
-            }
-        }
-
-        $gauge->set(0);
+        $gauge->set($dbAvailable ? 1 : 0);
     }
 
     /**
