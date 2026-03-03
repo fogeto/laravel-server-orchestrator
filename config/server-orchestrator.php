@@ -146,6 +146,40 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | HTTP Client (Outgoing) Metrikleri
+    |--------------------------------------------------------------------------
+    |
+    | Laravel Http:: client ile yapılan dışarıya giden HTTP isteklerini izler.
+    | Prometheus histogram + counter metrikleri üretir.
+    |
+    | Üretilen metrikler:
+    |   - http_client_request_duration_seconds (Histogram)
+    |   - http_client_requests_total (Counter)
+    |   - http_client_errors_total (Counter — sadece 4xx/5xx/connection error)
+    |
+    | Label'lar:
+    |   http_request_method, http_response_status_code,
+    |   server_address, url_scheme, error_type
+    |
+    | - enabled: HTTP client metrik toplama aktif/pasif
+    | - ignore_hosts: Bu host'lara yapılan istekler izlenmez
+    | - histogram_buckets: İstek süreleri için bucket sınırları (saniye)
+    |
+    */
+    'http_client_metrics' => [
+        'enabled' => env('ORCHESTRATOR_HTTP_CLIENT_ENABLED', true),
+        'ignore_hosts' => [
+            // 'internal-service.local',
+            // '*.internal.example.com',
+        ],
+        'histogram_buckets' => [
+            0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
+            1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sistem Metrikleri
     |--------------------------------------------------------------------------
     |

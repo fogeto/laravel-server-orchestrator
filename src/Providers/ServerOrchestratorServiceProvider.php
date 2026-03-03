@@ -6,9 +6,14 @@ use Fogeto\ServerOrchestrator\Adapters\PredisAdapter;
 use Fogeto\ServerOrchestrator\Console\Commands\MigrateFromInlineCommand;
 use Fogeto\ServerOrchestrator\Helpers\SqlParser;
 use Fogeto\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
+use Fogeto\ServerOrchestrator\Listeners\HttpClientListener;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Http\Client\Events\ConnectionFailed;
+use Illuminate\Http\Client\Events\RequestSending;
+use Illuminate\Http\Client\Events\ResponseReceived;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\ServiceProvider;
 use Prometheus\CollectorRegistry;
@@ -77,6 +82,11 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         // SQL Listener — DB::listen() ile sorgu metriklerini topla
         if (config('server-orchestrator.sql_metrics.enabled', true)) {
             $this->registerSqlListener();
+        }
+
+        // HTTP Client Listener — outgoing HTTP isteklerini izle
+        if (config('server-orchestrator.http_client_metrics.enabled', true)) {
+            $this->registerHttpClientListener();
         }
     }
 
@@ -165,6 +175,29 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
                 }
             }
         });
+    }
+
+    /**
+     * HTTP Client event listener'larını kaydet.
+     *
+     * Laravel'in Http:: client'ı (Guzzle wrapper) ile yapılan outgoing
+     * HTTP isteklerini izler. 3 event dinlenir:
+     *   - RequestSending: Start time kaydet
+     *   - ResponseReceived: Duration hesapla, metrik yaz
+     *   - ConnectionFailed: Connection error metriği yaz
+     *
+     * Üretilen metrikler:
+     *   - http_client_request_duration_seconds (Histogram)
+     *   - http_client_requests_total (Counter)
+     *   - http_client_errors_total (Counter — 4xx/5xx/connection error)
+     */
+    private function registerHttpClientListener(): void
+    {
+        $listener = new HttpClientListener();
+
+        Event::listen(RequestSending::class, [$listener, 'handleRequestSending']);
+        Event::listen(ResponseReceived::class, [$listener, 'handleResponseReceived']);
+        Event::listen(ConnectionFailed::class, [$listener, 'handleConnectionFailed']);
     }
 
     /**
