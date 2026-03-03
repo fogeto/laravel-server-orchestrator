@@ -5,8 +5,10 @@ namespace Fogeto\ServerOrchestrator\Providers;
 use Fogeto\ServerOrchestrator\Adapters\PredisAdapter;
 use Fogeto\ServerOrchestrator\Console\Commands\MigrateFromInlineCommand;
 use Fogeto\ServerOrchestrator\Helpers\SqlParser;
+use Fogeto\ServerOrchestrator\Http\Middleware\ApmErrorCaptureMiddleware;
 use Fogeto\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
 use Fogeto\ServerOrchestrator\Listeners\HttpClientListener;
+use Fogeto\ServerOrchestrator\Services\ApmErrorBuffer;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\Events\ConnectionFailed;
@@ -31,6 +33,11 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         if (! config('server-orchestrator.enabled', true)) {
             return;
         }
+
+        // ApmErrorBuffer singleton — tüm bileşenler tarafında paylaşılır
+        $this->app->singleton(ApmErrorBuffer::class, function () {
+            return new ApmErrorBuffer();
+        });
 
         $this->app->singleton(CollectorRegistry::class, function () {
             try {
@@ -87,6 +94,12 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         // HTTP Client Listener — outgoing HTTP isteklerini izle
         if (config('server-orchestrator.http_client_metrics.enabled', true)) {
             $this->registerHttpClientListener();
+        }
+
+        // APM Error Capture — hata response'larını yakala
+        if (config('server-orchestrator.apm.enabled', true)) {
+            $this->registerApmMiddleware();
+            $this->registerApmRoutes();
         }
     }
 
@@ -198,6 +211,51 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         Event::listen(RequestSending::class, [$listener, 'handleRequestSending']);
         Event::listen(ResponseReceived::class, [$listener, 'handleResponseReceived']);
         Event::listen(ConnectionFailed::class, [$listener, 'handleConnectionFailed']);
+    }
+
+    /**
+     * APM Error Capture Middleware'i kaydet.
+     * PrometheusMiddleware ile aynı gruplara eklenir.
+     * Sıralama: PrometheusMiddleware'den sonra çalışmalı.
+     */
+    private function registerApmMiddleware(): void
+    {
+        $groups = config('server-orchestrator.middleware.groups', ['api']);
+
+        if ($this->app->bound(Kernel::class)) {
+            $kernel = $this->app->make(Kernel::class);
+
+            foreach ($groups as $group) {
+                if (method_exists($kernel, 'appendMiddlewareToGroup')) {
+                    $kernel->appendMiddlewareToGroup($group, ApmErrorCaptureMiddleware::class);
+                } elseif (method_exists($kernel, 'pushMiddleware')) {
+                    $kernel->pushMiddleware(ApmErrorCaptureMiddleware::class);
+                    break;
+                }
+            }
+        }
+
+        $router = $this->app->make(\Illuminate\Routing\Router::class);
+
+        foreach ($groups as $group) {
+            $router->pushMiddlewareToGroup($group, ApmErrorCaptureMiddleware::class);
+        }
+    }
+
+    /**
+     * APM hata endpoint route'larını kaydet.
+     * /__apm/errors ve /apm/errors endpoint'leri
+     */
+    private function registerApmRoutes(): void
+    {
+        $this->app->booted(function () {
+            $router = $this->app->make(\Illuminate\Routing\Router::class);
+
+            $router->get('/__apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
+            $router->get('/apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
+            $router->delete('/__apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'clear']);
+            $router->delete('/apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'clear']);
+        });
     }
 
     /**

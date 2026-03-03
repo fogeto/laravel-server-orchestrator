@@ -2,6 +2,7 @@
 
 namespace Fogeto\ServerOrchestrator\Listeners;
 
+use Fogeto\ServerOrchestrator\Services\ApmErrorBuffer;
 use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Http\Client\Events\ResponseReceived;
@@ -98,6 +99,11 @@ class HttpClientListener
         }
 
         $this->recordMetrics($duration, $method, $statusCode, $serverAddress, $urlScheme, $errorType);
+
+        // APM: Hata response'larının request/response detaylarını yakala
+        if ($event->response->status() >= 400) {
+            $this->captureApmError($event, $duration, $serverAddress, $urlScheme);
+        }
     }
 
     /**
@@ -125,6 +131,9 @@ class HttpClientListener
         }
 
         $this->recordMetrics($duration, $method, '0', $serverAddress, $urlScheme, 'connection_error');
+
+        // APM: Connection failure detaylarını yakala
+        $this->captureApmConnectionError($event, $duration, $serverAddress, $urlScheme);
     }
 
     /**
@@ -146,6 +155,122 @@ class HttpClientListener
         }
 
         return false;
+    }
+
+    /**
+     * APM: Outgoing HTTP hata response'unun detaylarını yakala.
+     */
+    private function captureApmError(ResponseReceived $event, float $duration, string $serverAddress, string $urlScheme): void
+    {
+        if (!config('server-orchestrator.apm.enabled', true)) {
+            return;
+        }
+
+        try {
+            $buffer = app(ApmErrorBuffer::class);
+
+            if (!$buffer->shouldCapture($event->response->status())) {
+                return;
+            }
+
+            // Request headers
+            $requestHeaders = [];
+            try {
+                $requestHeaders = $event->request->headers();
+            } catch (\Throwable) {}
+
+            // Request body
+            $requestBody = '';
+            try {
+                $body = $event->request->body();
+                if (!empty($body)) {
+                    $requestBody = $body;
+                }
+            } catch (\Throwable) {}
+
+            // Response body
+            $responseBody = '';
+            try {
+                $responseBody = $event->response->body();
+            } catch (\Throwable) {}
+
+            // Response headers
+            $responseHeaders = [];
+            try {
+                $responseHeaders = $event->response->headers();
+            } catch (\Throwable) {}
+
+            // Query string
+            $parsed = parse_url($event->request->url());
+            $queryString = $parsed['query'] ?? '';
+
+            $buffer->captureOutgoing([
+                'url' => $event->request->url(),
+                'method' => strtoupper($event->request->method()),
+                'statusCode' => $event->response->status(),
+                'requestBody' => $requestBody,
+                'responseBody' => $responseBody,
+                'requestHeaders' => $requestHeaders,
+                'responseHeaders' => $responseHeaders,
+                'durationMs' => $duration * 1000,
+                'serverAddress' => $serverAddress,
+                'urlScheme' => $urlScheme,
+                'userAgent' => $requestHeaders['User-Agent'] ?? $requestHeaders['user-agent'] ?? '',
+                'queryString' => $queryString,
+            ]);
+        } catch (\Throwable) {
+            // APM capture hatası asla request akışını etkilememeli
+        }
+    }
+
+    /**
+     * APM: Connection failure detaylarını yakala.
+     */
+    private function captureApmConnectionError(ConnectionFailed $event, float $duration, string $serverAddress, string $urlScheme): void
+    {
+        if (!config('server-orchestrator.apm.enabled', true)) {
+            return;
+        }
+
+        try {
+            $buffer = app(ApmErrorBuffer::class);
+
+            // Request headers
+            $requestHeaders = [];
+            try {
+                $requestHeaders = $event->request->headers();
+            } catch (\Throwable) {}
+
+            // Request body
+            $requestBody = '';
+            try {
+                $body = $event->request->body();
+                if (!empty($body)) {
+                    $requestBody = $body;
+                }
+            } catch (\Throwable) {}
+
+            $parsed = parse_url($event->request->url());
+            $queryString = $parsed['query'] ?? '';
+
+            $buffer->captureOutgoing([
+                'url' => $event->request->url(),
+                'method' => strtoupper($event->request->method()),
+                'statusCode' => 0,
+                'errorType' => 'Connection Failed',
+                'requestBody' => $requestBody,
+                'responseBody' => '',
+                'requestHeaders' => $requestHeaders,
+                'responseHeaders' => [],
+                'durationMs' => $duration * 1000,
+                'serverAddress' => $serverAddress,
+                'urlScheme' => $urlScheme,
+                'userAgent' => $requestHeaders['User-Agent'] ?? $requestHeaders['user-agent'] ?? '',
+                'queryString' => $queryString,
+            ]);
+        } catch (\Throwable) {
+            // APM capture hatası asla request akışını etkilememeli
+        }
     }
 
     /**

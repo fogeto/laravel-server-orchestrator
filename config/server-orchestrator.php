@@ -180,6 +180,62 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | APM Error Capture (Hata Yakalama)
+    |--------------------------------------------------------------------------
+    |
+    | HTTP hata response'larını (request/response body dahil) yakalayıp
+    | Redis circular buffer'da saklar. Hem incoming (iç servis) hem outgoing
+    | (dış servis - Http:: client) hataları yakalanır.
+    |
+    | .NET'teki ApmErrorCaptureMiddleware'in Laravel karşılığı.
+    |
+    | Endpoint: /__apm/errors veya /apm/errors
+    |   - GET: Hata listesi (en yeniden eskiye, JSON array)
+    |   - DELETE: Buffer temizle
+    |   - Filtre: ?source=incoming|outgoing, ?status_code=500
+    |
+    | Yakalanan status code'lar: 400, 401, 403, 404, 429, 500, 502, 503
+    |
+    | - enabled: APM hata yakalama aktif/pasif
+    | - max_buffer_size: Circular buffer boyutu (en eskiler otomatik silinir)
+    | - max_body_size: Request/response body max capture boyutu (byte)
+    | - max_message_length: Kısa mesaj alanı max uzunluğu
+    | - ttl: Redis'te event'lerin saklanma süresi (saniye, null = sonsuz)
+    | - ip_protection: Production'da IP whitelist koruması aktif/pasif
+    | - allowed_ips: Ek izinli IP'ler (localhost her zaman izinli)
+    | - ignore_paths: Bu path'lerden gelen incoming istekler yakalanmaz
+    | - capture_outgoing: Outgoing (Http:: client) hatalarını da yakala
+    |
+    */
+    'apm' => [
+        'enabled' => env('ORCHESTRATOR_APM_ENABLED', true),
+        'max_buffer_size' => 200,
+        'max_body_size' => 32768, // 32KB
+        'max_message_length' => 200,
+        'ttl' => 604800, // 7 gün
+        'ip_protection' => true,
+        'allowed_ips' => array_filter([
+            env('APM_ALLOWED_IP_0'),
+            env('APM_ALLOWED_IP_1'),
+            env('APM_ALLOWED_IP_2'),
+            env('APM_ALLOWED_IP_3'),
+            env('APM_ALLOWED_IP_4'),
+        ]),
+        'ignore_paths' => [
+            'api/metrics',
+            'metrics',
+            'api/wipe-metrics',
+            'wipe-metrics',
+            '__apm/*',
+            'apm/*',
+            'telescope/*',
+            'horizon/*',
+        ],
+        'capture_outgoing' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sistem Metrikleri
     |--------------------------------------------------------------------------
     |
