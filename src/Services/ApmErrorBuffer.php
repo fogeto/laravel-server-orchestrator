@@ -213,8 +213,8 @@ class ApmErrorBuffer
             // LTRIM: buffer size'ı aşarsa en eski event'leri sil
             $connection->ltrim($this->redisKey, 0, $this->maxBufferSize - 1);
 
-            // TTL — 7 gün sonra otomatik silinsin
-            $ttl = config('server-orchestrator.apm.ttl', 604800);
+            // TTL — 24 saat sonra otomatik silinsin
+            $ttl = config('server-orchestrator.apm.ttl', 86400);
             if ($ttl !== null) {
                 $connection->expire($this->redisKey, $ttl);
             }

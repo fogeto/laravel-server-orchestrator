@@ -46,14 +46,14 @@ return [
     |--------------------------------------------------------------------------
     |
     | Metrik key'lerinin Redis'te ne kadar süre tutulacağı (saniye).
-    | Varsayılan: 604800 (7 gün). Her yazma işleminde TTL yenilenir,
+    | Varsayılan: 86400 (24 saat). Her yazma işleminde TTL yenilenir,
     | böylece aktif metrikler canlı kalır, kullanılmayan metrikler
     | otomatik olarak temizlenir.
     |
     | null yaparsanız TTL uygulanmaz (sonsuz saklama).
     |
     */
-    'metrics_ttl' => env('ORCHESTRATOR_METRICS_TTL', 604800),
+    'metrics_ttl' => env('ORCHESTRATOR_METRICS_TTL', 86400),
 
     /*
     |--------------------------------------------------------------------------
@@ -212,7 +212,7 @@ return [
         'max_buffer_size' => 200,
         'max_body_size' => 32768, // 32KB
         'max_message_length' => 200,
-        'ttl' => 604800, // 7 gün
+        'ttl' => 86400, // 24 saat
         'ip_protection' => true,
         'allowed_ips' => array_filter([
             env('APM_ALLOWED_IP_0'),
