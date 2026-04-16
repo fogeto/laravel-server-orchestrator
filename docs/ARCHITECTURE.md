@@ -124,11 +124,13 @@ Prometheus PHP client'ının storage backend'i. Tüm metrik verilerini Redis has
 
 **Dosya:** `src/Http/Middleware/PrometheusMiddleware.php`
 
-Her HTTP isteğinde 3 metrik kaydeder:
+Her HTTP isteğinde standart ve uyumluluk amaçlı 5 metrik kaydeder:
 
 | Metrik | Tip | Açıklama |
 |--------|-----|----------|
 | `http_request_duration_seconds` | Histogram | İstek süresi (saniye) |
+| `http_requests_in_progress` | Gauge | O anda işlenen istek sayısı |
+| `http_requests_received_total` | Counter | Standart toplam istek sayısı |
 | `http_requests_total` | Counter | Toplam istek sayısı |
 | `http_errors_total` | Counter | 4xx + 5xx hataları |
 
@@ -141,7 +143,7 @@ Her HTTP isteğinde 3 metrik kaydeder:
 4. `$duration` hesapla
 5. `resolveEndpoint()` → URI normalize et
 6. `resolveControllerAction()` → Controller@method çıkar
-7. 3 metriği kaydet → Redis'e yaz
+7. HTTP duration + counter + in-progress metriklerini kaydet → Redis'e yaz
 
 ### 4. MetricsController
 

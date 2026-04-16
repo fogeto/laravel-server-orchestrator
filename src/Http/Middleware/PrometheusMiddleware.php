@@ -18,15 +18,29 @@ class PrometheusMiddleware
             return $next($request);
         }
 
-        $start = microtime(true);
-
-        $response = $next($request);
-
-        $duration = microtime(true) - $start;
         $method = $request->method();
-        $code = (string) $response->getStatusCode();
         $endpoint = $this->resolveEndpoint($request);
         [$controller, $action] = $this->resolveControllerAction($request);
+        $inProgressLabels = [$method, $controller, $action, $endpoint];
+
+        $inProgressGauge = $this->registry->getOrRegisterGauge(
+            'http',
+            'requests_in_progress',
+            'The number of HTTP requests currently in progress.',
+            ['method', 'controller', 'action', 'endpoint']
+        );
+        $inProgressGauge->inc($inProgressLabels);
+
+        $start = microtime(true);
+
+        try {
+            $response = $next($request);
+        } finally {
+            $inProgressGauge->dec($inProgressLabels);
+        }
+
+        $duration = microtime(true) - $start;
+        $code = (string) $response->getStatusCode();
 
         $buckets = config('server-orchestrator.histogram_buckets', [
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
@@ -51,6 +65,14 @@ class PrometheusMiddleware
             ['code', 'method', 'controller', 'action', 'endpoint']
         );
         $counter->inc([$code, $method, $controller, $action, $endpoint]);
+
+        $receivedCounter = $this->registry->getOrRegisterCounter(
+            'http',
+            'requests_received_total',
+            'Total number of HTTP requests received.',
+            ['code', 'method', 'controller', 'action', 'endpoint']
+        );
+        $receivedCounter->inc([$code, $method, $controller, $action, $endpoint]);
 
         // Error counter (4xx ve 5xx)
         if ($response->getStatusCode() >= 400) {

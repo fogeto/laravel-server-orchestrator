@@ -162,7 +162,7 @@ class HttpClientListener
      */
     private function captureApmError(ResponseReceived $event, float $duration, string $serverAddress, string $urlScheme): void
     {
-        if (!config('server-orchestrator.apm.enabled', true)) {
+        if (! config('server-orchestrator.apm.enabled', true) || ! config('server-orchestrator.apm.capture_outgoing', true)) {
             return;
         }
 
@@ -228,7 +228,7 @@ class HttpClientListener
      */
     private function captureApmConnectionError(ConnectionFailed $event, float $duration, string $serverAddress, string $urlScheme): void
     {
-        if (!config('server-orchestrator.apm.enabled', true)) {
+        if (! config('server-orchestrator.apm.enabled', true) || ! config('server-orchestrator.apm.capture_outgoing', true)) {
             return;
         }
 

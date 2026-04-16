@@ -6,12 +6,25 @@ Bu doküman, `GET /metrics` endpoint'inin döndürdüğü Prometheus text format
 
 ## Tam Örnek Çıktı
 
-Aşağıda bir Laravel projesi (prefix: `ikbackend`) için tipik bir `/api/metrics` yanıtı gösterilmektedir:
+Aşağıda bir Laravel projesi (prefix: `ikbackend`) için tipik bir `/metrics` yanıtı gösterilmektedir:
 
 ```
 # HELP app_health_status Application health status (1=UP, 0=DOWN)
 # TYPE app_health_status gauge
 app_health_status 1
+
+# HELP db_client_connections_usage Number of connections in the database connection pool by state.
+# TYPE db_client_connections_usage gauge
+db_client_connections_usage{state="idle"} 3
+db_client_connections_usage{state="used"} 2
+
+# HELP db_client_connections_max Maximum size of the database connection pool.
+# TYPE db_client_connections_max gauge
+db_client_connections_max 151
+
+# HELP db_client_connections_pending_requests Number of requests waiting for a database connection.
+# TYPE db_client_connections_pending_requests gauge
+db_client_connections_pending_requests 0
 
 # HELP db_connections_active Active database connections
 # TYPE db_connections_active gauge
@@ -59,12 +72,35 @@ http_request_duration_seconds_bucket{code="201",method="POST",controller="UserCo
 http_request_duration_seconds_sum{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users"} 0.187
 http_request_duration_seconds_count{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users"} 5
 
+# HELP http_requests_in_progress The number of HTTP requests currently in progress.
+# TYPE http_requests_in_progress gauge
+http_requests_in_progress{method="GET",controller="UserController",action="index",endpoint="/api/users"} 1
+
+# HELP http_requests_received_total Total number of HTTP requests received.
+# TYPE http_requests_received_total counter
+http_requests_received_total{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 22
+http_requests_received_total{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users"} 5
+http_requests_received_total{code="404",method="GET",controller="",action="",endpoint="/api/nonexistent"} 3
+http_requests_received_total{code="500",method="POST",controller="PaymentController",action="charge",endpoint="/api/payments/charge"} 1
+
 # HELP http_requests_total Total number of HTTP requests.
 # TYPE http_requests_total counter
 http_requests_total{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 22
 http_requests_total{code="201",method="POST",controller="UserController",action="store",endpoint="/api/users"} 5
 http_requests_total{code="404",method="GET",controller="",action="",endpoint="/api/nonexistent"} 3
 http_requests_total{code="500",method="POST",controller="PaymentController",action="charge",endpoint="/api/payments/charge"} 1
+
+# HELP sql_query_duration_seconds Duration of SQL queries in seconds.
+# TYPE sql_query_duration_seconds histogram
+sql_query_duration_seconds_bucket{operation="SELECT",table="users",query_hash="4db9851d7f6d6f3e",query="SELECT * FROM users WHERE id = ?",le="0.001"} 0
+sql_query_duration_seconds_bucket{operation="SELECT",table="users",query_hash="4db9851d7f6d6f3e",query="SELECT * FROM users WHERE id = ?",le="0.005"} 4
+sql_query_duration_seconds_bucket{operation="SELECT",table="users",query_hash="4db9851d7f6d6f3e",query="SELECT * FROM users WHERE id = ?",le="+Inf"} 4
+sql_query_duration_seconds_sum{operation="SELECT",table="users",query_hash="4db9851d7f6d6f3e",query="SELECT * FROM users WHERE id = ?"} 0.011
+sql_query_duration_seconds_count{operation="SELECT",table="users",query_hash="4db9851d7f6d6f3e",query="SELECT * FROM users WHERE id = ?"} 4
+
+# HELP sql_query_errors_total Total number of SQL query errors.
+# TYPE sql_query_errors_total counter
+sql_query_errors_total{operation="INSERT",table="users",query_hash="965741b42e0fe1e4"} 2
 
 # HELP php_info PHP environment information
 # TYPE php_info gauge
@@ -163,7 +199,7 @@ Host: localhost:8000
 | HTTP Status | `200 OK` |
 | Content-Type | `application/json` |
 
-**Wipe sonrası `/api/metrics` çıktısı:**
+**Wipe sonrası `/metrics` çıktısı:**
 
 Sadece anlık gauge sistem metrikleri görünür (çünkü her scrape'de yeniden toplanır). Counter ve histogram verileri sıfırdan başlar — trafik geldikçe tekrar birikir.
 
@@ -204,8 +240,11 @@ app_health_status 0
 # TYPE php_info gauge
 php_info{version="8.3.14"} 1
 
-# db_connections_active → GÖRÜNMEZ (toplanmaz)
-# db_connections_max → GÖRÜNMEZ (toplanmaz)
+# db_client_connections_usage → GÖRÜNMEZ (toplanmaz)
+# db_client_connections_max → GÖRÜNMEZ (toplanmaz)
+# db_client_connections_pending_requests → GÖRÜNMEZ (toplanmaz)
+# db_connections_active → GÖRÜNMEZ (uyumluluk metriği de kaybolur)
+# db_connections_max → GÖRÜNMEZ (uyumluluk metriği de kaybolur)
 
 # HELP process_memory_usage_bytes Current memory usage in bytes
 # TYPE process_memory_usage_bytes gauge
@@ -214,11 +253,11 @@ process_memory_usage_bytes 14680064
 # ... diğer gauge'lar normal
 ```
 
-**Dikkat:** `db_connections_active` ve `db_connections_max` metrikleri tamamen kaybolur — `0` değil, hiç üretilmez. Bu, Prometheus'ta `absent()` fonksiyonu ile alert kurmanızı sağlar:
+**Dikkat:** `db_client_connections_usage`, `db_client_connections_max`, `db_client_connections_pending_requests` ve uyumluluk metrikleri tamamen kaybolur — `0` değil, hiç üretilmez. Bu, Prometheus'ta `absent()` fonksiyonu ile alert kurmanızı sağlar:
 
 ```promql
 # DB metrikleri kaybolursa uyar
-absent(db_connections_active) == 1
+absent(db_client_connections_max) == 1
 ```
 
 ---
@@ -232,7 +271,7 @@ scrape_configs:
   # Tek proje
   - job_name: 'ikbackend'
     scrape_interval: 15s
-    metrics_path: '/api/metrics'
+    metrics_path: '/metrics'
     static_configs:
       - targets: ['192.168.1.100:8000']
         labels:
@@ -242,7 +281,7 @@ scrape_configs:
   # Birden fazla proje — aynı Redis, farklı prefix
   - job_name: 'crm'
     scrape_interval: 15s
-    metrics_path: '/api/metrics'
+    metrics_path: '/metrics'
     static_configs:
       - targets: ['192.168.1.101:8000']
         labels:

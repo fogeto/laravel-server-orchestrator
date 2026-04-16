@@ -141,29 +141,66 @@ class MetricsController extends Controller
     private function collectDatabaseMetrics(): bool
     {
         try {
-            $dbConnections = DB::select("SHOW STATUS LIKE 'Threads_connected'");
+            $dbConnections = DB::select("SHOW STATUS WHERE Variable_name IN ('Threads_connected', 'Threads_running')");
             $dbMaxConnections = DB::select("SHOW VARIABLES LIKE 'max_connections'");
 
-            if (! empty($dbConnections)) {
+            $statusValues = [];
+            foreach ($dbConnections as $status) {
+                $statusValues[$status->Variable_name] = (int) $status->Value;
+            }
+
+            $threadsConnected = $statusValues['Threads_connected'] ?? null;
+            $threadsRunning = $statusValues['Threads_running'] ?? null;
+            $maxConnections = ! empty($dbMaxConnections) ? (int) $dbMaxConnections[0]->Value : null;
+
+            if ($threadsConnected !== null) {
                 $gauge = $this->registry->getOrRegisterGauge(
                     'db',
                     'connections_active',
                     'Active database connections'
                 );
-                $gauge->set((int) $dbConnections[0]->Value);
+                $gauge->set($threadsConnected);
             }
 
-            if (! empty($dbMaxConnections)) {
+            if ($maxConnections !== null) {
                 $gauge = $this->registry->getOrRegisterGauge(
                     'db',
                     'connections_max',
                     'Maximum database connection limit'
                 );
-                $gauge->set((int) $dbMaxConnections[0]->Value);
+                $gauge->set($maxConnections);
+
+                $poolMaxGauge = $this->registry->getOrRegisterGauge(
+                    'db_client',
+                    'connections_max',
+                    'Maximum size of the database connection pool.'
+                );
+                $poolMaxGauge->set($maxConnections);
+            }
+
+            if ($threadsConnected !== null) {
+                $usedConnections = $threadsRunning ?? $threadsConnected;
+                $idleConnections = max($threadsConnected - $usedConnections, 0);
+
+                $usageGauge = $this->registry->getOrRegisterGauge(
+                    'db_client',
+                    'connections_usage',
+                    'Number of connections in the database connection pool by state.',
+                    ['state']
+                );
+                $usageGauge->set($idleConnections, ['idle']);
+                $usageGauge->set($usedConnections, ['used']);
+
+                $pendingGauge = $this->registry->getOrRegisterGauge(
+                    'db_client',
+                    'connections_pending_requests',
+                    'Number of requests waiting for a database connection.'
+                );
+                $pendingGauge->set(0);
             }
 
             return true;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // MySQL dışı veritabanları veya bağlantı hatası — sessizce devam et
             return false;
         }

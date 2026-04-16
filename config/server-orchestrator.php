@@ -65,6 +65,8 @@ return [
     | - prefix: URL prefix'i (örn: 'api' → /api/metrics)
     | - middleware: Route'a uygulanacak ek middleware'ler
     |
+    | Paket ayrıca kök /metrics ve /wipe-metrics alias'larını da kaydeder.
+    |
     */
     'routes' => [
         'enabled' => true,
@@ -118,17 +120,19 @@ return [
     |
     | DB::listen() ile otomatik olarak SQL sorgu metriklerini toplar.
     | - enabled: SQL metrik toplama aktif/pasif
-    | - include_query_label: SQL sorgusunun kendisini label olarak ekle
-    |   (dikkat: yüksek cardinality — sadece debug için önerilir)
+    | - include_query_label: Normalize edilmiş SQL sorgusunu label olarak ekle
+    |   (rehber uyumu için varsayılan açıktır; public metrics'te dikkatli olun)
     | - query_max_length: Query label'ı için maksimum karakter uzunluğu
+    | - max_unique_queries: Aynı process içinde tutulacak maksimum query hash sayısı
     | - ignore_patterns: Bu regex pattern'lara uyan sorgular izlenmez
     | - histogram_buckets: SQL sorgu süreleri için bucket sınırları (saniye)
     |
     */
     'sql_metrics' => [
         'enabled' => env('ORCHESTRATOR_SQL_ENABLED', true),
-        'include_query_label' => env('ORCHESTRATOR_SQL_QUERY_LABEL', false),
+        'include_query_label' => env('ORCHESTRATOR_SQL_QUERY_LABEL', true),
         'query_max_length' => 200,
+        'max_unique_queries' => env('ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES', 100),
         'ignore_patterns' => [
             '/^SHOW\b/i',
             '/^SET\b/i',

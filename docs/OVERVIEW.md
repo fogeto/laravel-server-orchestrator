@@ -96,7 +96,7 @@ HTTP İsteği gelir
               │
               ▼
 ┌──────────────────────────┐
-│  GET /api/metrics        │
+│  GET /metrics            │
 │  MetricsController@index │
 │  1. collectSystemMetrics │  ← Anlık gauge'lar (PHP, memory, DB, OPcache)
 │  2. registry->collect()  │  ← Redis'ten histogram/counter/gauge oku
@@ -150,7 +150,7 @@ composer update fogeto/laravel-server-orchestrator
 php artisan serve
 
 # Metrikleri temizle
-curl -X POST http://localhost:8000/api/wipe-metrics
+curl -X POST http://localhost:8000/wipe-metrics
 
 # Birkaç istek at
 curl http://localhost:8000/api/users
@@ -158,7 +158,7 @@ curl http://localhost:8000/api/users
 curl -X POST http://localhost:8000/api/admin/login
 
 # Metrikleri kontrol et
-curl http://localhost:8000/api/metrics
+curl http://localhost:8000/metrics
 ```
 
 ### Değişiklik Yaptıktan Sonra

@@ -14,18 +14,41 @@ class SqlParser
      * SQL sorgusunu parse et ve temel bileşenlerini döndür.
      *
      * @param  string  $sql  SQL sorgusu
-     * @return array{operation: string, table: string, query_hash: string}
+     * @return array{operation: string, table: string, query_hash: string, query: string}
      */
     public static function parse(string $sql): array
     {
-        $operation = self::extractOperation($sql);
-        $table = self::extractTable($sql, $operation);
+        $normalized = self::normalize($sql);
+        $operation = self::extractOperation($normalized);
+        $table = self::extractTable($normalized, $operation);
 
         return [
             'operation' => $operation,
             'table' => $table,
-            'query_hash' => md5($sql),
+            'query_hash' => self::computeHash($normalized),
+            'query' => $normalized,
         ];
+    }
+
+    /**
+     * SQL sorgusunu normalize et.
+     */
+    public static function normalize(string $sql): string
+    {
+        $normalized = trim($sql);
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\'(?:[^\'\\\\]|\\\\.)*\'/', '?', $normalized) ?? $normalized;
+        $normalized = preg_replace('/(?<=[\s,=(])[-+]?\d+(?:\.\d+)?(?=[\s,);\]]|$)/', '?', $normalized) ?? $normalized;
+
+        return trim($normalized);
+    }
+
+    /**
+     * Normalize edilmiş sorgu için sabit boyutlu hash üret.
+     */
+    public static function computeHash(string $sql): string
+    {
+        return substr(hash('sha256', $sql), 0, 16);
     }
 
     /**
