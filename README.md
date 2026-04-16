@@ -152,12 +152,9 @@ php artisan route:list --path=metrics
 
 ```
 GET|HEAD  metrics ............ Fogeto\ServerOrchestrator\Http\Controllers\MetricsController@index
-GET|HEAD  api/metrics ........ Fogeto\ServerOrchestrator\Http\Controllers\MetricsController@index
-POST      wipe-metrics ....... Fogeto\ServerOrchestrator\Http\Controllers\MetricsController@wipe
-POST      api/wipe-metrics ... Fogeto\ServerOrchestrator\Http\Controllers\MetricsController@wipe
 ```
 
-**Bu kadar!** Artık `/metrics` adresinden metriklere erişebilirsiniz. Prefix route'u da çalışmaya devam eder.
+**Bu kadar!** Artık `/metrics` adresinden metriklere erişebilirsiniz.
 
 ---
 
@@ -199,7 +196,6 @@ Bulunan eski entegrasyon bileşenleri:
 | Eksik    | .env                                     | ORCHESTRATOR_PREFIX yok     |
 +----------+------------------------------------------+-----------------------------+
 ```
-
 #### Adım 3 — Migrasyonu Çalıştırın
 
 ```bash
@@ -253,9 +249,6 @@ php artisan orchestrator:migrate --prefix=myapp
 # curl ile
 curl http://localhost:8000/metrics
 
-# Prefix kullanıyorsanız alias hâlâ çalışır
-curl http://localhost:8000/api/metrics
-
 # PowerShell ile
 Invoke-RestMethod -Uri http://localhost:8000/metrics
 
@@ -263,123 +256,70 @@ Invoke-RestMethod -Uri http://localhost:8000/metrics
 # http://localhost:8000/metrics
 ```
 
-### Metrikleri Temizleme (Wipe)
+### Toplanan Metrikler
 
-Tüm Redis'teki metrik verilerini sıfırlar. Test/geliştirme ortamında kullanışlıdır.
+Paket varsayılan olarak rehberdeki yüzeyi üretir.
 
-```bash
-curl -X POST http://localhost:8000/wipe-metrics
-```
-
-Yanıt:
-
-```json
-{
-    "success": true,
-    "message": "All metrics have been wiped."
-}
-```
-
----
-
-## Toplanan Metrikler
-
-### HTTP Metrikleri (Otomatik)
-
-Middleware tarafından her API isteğinde otomatik olarak kaydedilir.
+#### HTTP Metrikleri
 
 | Metrik | Tip | Açıklama |
 |--------|-----|----------|
-| `http_request_duration_seconds` | Histogram | İstek süresi (saniye) |
-| `http_requests_received_total` | Counter | Standart toplam istek sayısı |
-| `http_requests_in_progress` | Gauge | O anda işlenen istek sayısı |
-| `http_requests_total` | Counter | Toplam istek sayısı |
-| `http_errors_total` | Counter | Toplam hata sayısı (4xx + 5xx) |
+| `http_request_duration_seconds` | Histogram | ASP.NET Core tarzı request latency histogramı |
+| `http_requests_received_total` | Counter | İşlenen HTTP istek sayısı |
+| `http_requests_in_progress` | Gauge | Pipeline içindeki anlık request sayısı |
 
-> **Uyumluluk notu:** `http_requests_total` metriği korunur. Standart isim olarak artık `http_requests_received_total` da üretilir.
+**HTTP label'ları:** `code`, `method`, `controller`, `action`, `endpoint`
 
-**Label'lar:**
+#### SQL Metrikleri
 
-| Label | Açıklama | Örnek |
-|-------|----------|-------|
-| `code` | HTTP durum kodu | `200`, `404`, `500` |
-| `method` | HTTP metodu | `GET`, `POST`, `PUT` |
-| `controller` | Controller adı | `UserController` |
-| `action` | Method adı | `index`, `store` |
-| `endpoint` | Normalize edilmiş URI | `/api/users/{id}` |
+| Metrik | Tip | Açıklama |
+|--------|-----|----------|
+| `sql_query_duration_seconds` | Histogram | SQL query execution duration |
+| `sql_query_errors_total` | Counter | SQL query error count |
 
-> **Not:** Endpoint'lerdeki UUID ve sayısal ID'ler otomatik olarak `{uuid}` ve `{id}` ile değiştirilir. Bu, kardinellik sorununu önler.
+**SQL label sırası:**
 
-#### Örnek HTTP Metrikleri Çıktısı
+| Metrik | Label'lar |
+|--------|-----------|
+| `sql_query_duration_seconds` | `query_hash`, `operation`, `table`, `query` |
+| `sql_query_errors_total` | `query_hash`, `operation`, `table` |
+
+#### DB Client Metrikleri
+
+| Metrik | Tip | Açıklama |
+|--------|-----|----------|
+| `db_client_connections_max` | Gauge | Maximum pool connections |
+| `db_client_connections_usage` | Gauge | Database connections by state |
+| `db_client_connections_pending_requests` | Gauge | Pending connection requests |
+
+> Varsayılan yüzeyde artık `http_requests_total`, `http_errors_total`, `db_connections_active`, `db_connections_max`, `php_info`, `process_*`, `php_opcache_*` ve `app_health_status` üretilmez.
+
+#### Örnek HTTP Çıktısı
 
 ```
-# HELP http_request_duration_seconds The duration of HTTP requests processed by a Laravel application.
+# HELP http_request_duration_seconds The duration of HTTP requests processed by an ASP.NET Core application.
 # TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.005"} 12
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.01"} 38
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.025"} 45
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="+Inf"} 50
-http_request_duration_seconds_sum{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 12.345
-http_request_duration_seconds_count{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 50
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.001"} 1
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.002"} 3
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.004"} 8
+http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="+Inf"} 12
+http_request_duration_seconds_sum{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 0.018
+http_request_duration_seconds_count{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 12
 
-# HELP http_requests_in_progress The number of HTTP requests currently in progress.
+# HELP http_requests_in_progress The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair.
 # TYPE http_requests_in_progress gauge
 http_requests_in_progress{method="GET",controller="UserController",action="index",endpoint="/api/users"} 1
 
-# HELP http_requests_received_total Total number of HTTP requests received.
+# HELP http_requests_received_total Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.
 # TYPE http_requests_received_total counter
-http_requests_received_total{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 50
-http_requests_received_total{code="404",method="GET",controller="UserController",action="show",endpoint="/api/users/{id}"} 3
-
-# HELP http_requests_total Total number of HTTP requests.
-# TYPE http_requests_total counter
-http_requests_total{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 50
-http_requests_total{code="404",method="GET",controller="UserController",action="show",endpoint="/api/users/{id}"} 3
+http_requests_received_total{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 12
 ```
 
-### SQL Metrikleri (Otomatik)
+### SQL ve DB Notları
 
-DB::listen() ve exception handler entegrasyonu ile otomatik olarak kaydedilir.
-
-| Metrik | Tip | Açıklama |
-|--------|-----|----------|
-| `sql_query_duration_seconds` | Histogram | Normalize edilmiş SQL sorgu süresi |
-| `sql_query_errors_total` | Counter | QueryException olarak raporlanan SQL hataları |
-
-**Label'lar:**
-
-| Label | Açıklama | Örnek |
-|-------|----------|-------|
-| `operation` | SQL işlem türü | `SELECT`, `INSERT`, `UPDATE` |
-| `table` | Ana tablo adı | `users`, `orders` |
-| `query_hash` | Normalize edilmiş sorgunun SHA-256 kısa hash'i | `4db9851d7f6d6f3e` |
-| `query` | Normalize edilmiş sorgu | `SELECT * FROM users WHERE id = ?` |
-
-> **Not:** `query` label'ı rehber uyumu için varsayılan olarak açıktır. Yeni query hash'leri process başına `100` benzersiz sorguyla sınırlandırılır.
-
-### Sistem Metrikleri
-
-`/metrics` endpoint'i her çağrıldığında anlık olarak hesaplanır.
-
-| Metrik | Tip | Açıklama |
-|--------|-----|----------|
-| `php_info` | Gauge | PHP versiyonu (label: `version`) |
-| `process_uptime_seconds` | Gauge | Proses çalışma süresi |
-| `process_memory_usage_bytes` | Gauge | Anlık bellek kullanımı |
-| `process_memory_peak_bytes` | Gauge | En yüksek bellek kullanımı |
-| `db_client_connections_usage` | Gauge | DB bağlantı kullanımı (`idle` / `used`) |
-| `db_client_connections_max` | Gauge | DB bağlantı havuzu üst limiti |
-| `db_client_connections_pending_requests` | Gauge | Bekleyen bağlantı isteği sayısı |
-| `db_connections_active` | Gauge | Aktif MySQL bağlantı sayısı |
-| `db_connections_max` | Gauge | Maksimum bağlantı limiti |
-| `php_opcache_enabled` | Gauge | OPcache durumu (1/0) |
-| `php_opcache_hit_rate` | Gauge | OPcache hit oranı (%) |
-| `php_opcache_memory_used_bytes` | Gauge | OPcache bellek kullanımı |
-| `app_health_status` | Gauge | Uygulama sağlığı (1=UP, 0=DOWN) |
-
-> **Uyumluluk notu:** `db_connections_active` ve `db_connections_max` metrikleri korunur. Standart isimler olarak `db_client_connections_usage`, `db_client_connections_max` ve `db_client_connections_pending_requests` de üretilir.
-
-> **Not:** `app_health_status` veritabanı bağlantısını kontrol eder. MySQL çalışmıyorsa `0` döner. Bağlantı testi için `fsockopen()` ile 2 saniyelik TCP timeout kullanılır, bu sayede DB timeout'ları metrik endpoint'ini yavaşlatmaz.
+- `query` label'ı rehber uyumu için varsayılan olarak açıktır.
+- Yeni query hash'leri process başına `100` benzersiz sorguyla sınırlandırılır.
+- `db_client_connections_pending_requests` metriği şu an `0` yayınlanır.
 
 ---
 
@@ -394,12 +334,11 @@ Config dosyasını publish ettikten sonra `config/server-orchestrator.php` üzer
 | `ORCHESTRATOR_ENABLED` | `true` | Metrikleri tamamen açma/kapama |
 | `ORCHESTRATOR_PREFIX` | `APP_NAME` | Redis key prefix'i (projeye özel) |
 | `ORCHESTRATOR_REDIS_CONNECTION` | `default` | Kullanılacak Redis bağlantısı |
-| `ORCHESTRATOR_ROUTE_PREFIX` | `api` | Prefix route'ları için URL prefix'i |
 | `ORCHESTRATOR_SQL_ENABLED` | `true` | SQL metriklerini açma/kapama |
 | `ORCHESTRATOR_SQL_QUERY_LABEL` | `true` | Normalize edilmiş SQL query label'ını açma/kapama |
 | `ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES` | `100` | Process başına tutulacak maksimum query hash sayısı |
 
-> **Not:** Paket `/metrics` ve `/wipe-metrics` kök alias'larını da kaydeder. Prefix route'ları ek olarak çalışmaya devam eder.
+> **Not:** Varsayılan route yüzeyi yalnızca `GET /metrics` endpoint'idir.
 
 ### Prefix (Redis Key İzolasyonu)
 
@@ -412,8 +351,8 @@ Her projeye benzersiz bir prefix verin. Redis'teki key formatı:
 Örnek (`ORCHESTRATOR_PREFIX=ikbackend`):
 
 ```
-laravel_database_prometheus:ikbackend:gauges:php_info
-laravel_database_prometheus:ikbackend:counters:http_requests_total
+laravel_database_prometheus:ikbackend:gauges:db_client_connections_max
+laravel_database_prometheus:ikbackend:counters:http_requests_received_total
 laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
 ```
 
@@ -434,10 +373,7 @@ laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
     // Bu path'lerden gelen istekler izlenmez
     // Wildcard (*) desteği vardır
     'ignore_paths' => [
-        'api/metrics',
         'metrics',
-        'api/wipe-metrics',
-        'wipe-metrics',
         'telescope/*',      // Telescope istekleri
         'horizon/*',        // Horizon istekleri
         // 'api/health',    // Custom health check
@@ -451,9 +387,6 @@ laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
 'routes' => [
     // Route'ları otomatik kayıt et (false = kendi route'larınızı tanımlayın)
     'enabled' => true,
-
-    // URL prefix'i: 'api' → /api/metrics, '' → /metrics
-    'prefix' => env('ORCHESTRATOR_ROUTE_PREFIX', 'api'),
 
     // Route'a uygulanacak middleware'ler (güvenlik için)
     'middleware' => [],
@@ -470,37 +403,14 @@ laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
 
 ```php
 'histogram_buckets' => [
-    0.005,  // 5ms
-    0.01,   // 10ms
-    0.025,  // 25ms
-    0.05,   // 50ms
-    0.1,    // 100ms
-    0.25,   // 250ms
-    0.5,    // 500ms
-    1.0,    // 1s
-    2.5,    // 2.5s
-    5.0,    // 5s
-    10.0,   // 10s
-    30.0,   // 30s
+    0.001, 0.002, 0.004, 0.008,
+    0.016, 0.032, 0.064, 0.128,
+    0.256, 0.512, 1.024, 2.048,
+    4.096, 8.192, 16.384, 32.768,
 ],
 ```
 
-> **İpucu:** API response süreleriniz genellikle 100ms altındaysa, düşük bucket'lar (`0.001`, `0.0025`) ekleyerek daha hassas ölçüm yapabilirsiniz.
-
-### Sistem Metrikleri Açma/Kapama
-
-İhtiyacınız olmayan metrikleri devre dışı bırakabilirsiniz:
-
-```php
-'system_metrics' => [
-    'php_info'  => true,   // PHP versiyon bilgisi
-    'memory'    => true,   // Bellek kullanımı
-    'uptime'    => true,   // Proses çalışma süresi
-    'database'  => true,   // MySQL bağlantı metrikleri (SHOW STATUS)
-    'opcache'   => true,   // OPcache istatistikleri
-    'health'    => true,   // Uygulama sağlık durumu
-],
-```
+> **Not:** Bu bucket seti ASP.NET Core referansındaki histogram çözünürlüğünü takip eder.
 
 ---
 
@@ -522,15 +432,15 @@ ORCHESTRATOR_PREFIX=crm
 Redis'teki key yapısı:
 
 ```
-prometheus:ikbackend:gauges:php_info
-prometheus:ikbackend:counters:http_requests_total
+prometheus:ikbackend:gauges:db_client_connections_max
+prometheus:ikbackend:counters:http_requests_received_total
 prometheus:ikbackend:histograms:http_request_duration_seconds
 
-prometheus:hrportal:gauges:php_info
-prometheus:hrportal:counters:http_requests_total
+prometheus:hrportal:gauges:db_client_connections_max
+prometheus:hrportal:counters:http_requests_received_total
 
-prometheus:crm:gauges:php_info
-prometheus:crm:counters:http_requests_total
+prometheus:crm:gauges:db_client_connections_max
+prometheus:crm:counters:http_requests_received_total
 ```
 
 ### Prometheus Scrape Config (Tüm Projeler)
@@ -683,7 +593,6 @@ class MetricsIpWhitelist
 // routes/api.php — Kendi tanımınız
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/metrics', [\Fogeto\ServerOrchestrator\Http\Controllers\MetricsController::class, 'index']);
-    Route::post('/wipe-metrics', [\Fogeto\ServerOrchestrator\Http\Controllers\MetricsController::class, 'wipe']);
 });
 ```
 
@@ -720,42 +629,35 @@ histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
 # p99 response süresi
 histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
 
-# Hata oranı (%)
-rate(http_errors_total[5m]) / rate(http_requests_received_total[5m]) * 100
-
 # DB connection kullanım oranı (%)
 db_client_connections_usage{state="used"} / db_client_connections_max * 100
 
 # En yavaş endpoint'ler (p95)
 histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (endpoint, le))
 
-# Bellek kullanımı (MB)
-process_memory_usage_bytes / 1024 / 1024
-
-# Uygulama sağlık durumu
-app_health_status
+# SQL hata oranı
+rate(sql_query_errors_total[5m])
 ```
 
 ---
 
 ## Sorun Giderme (SSS)
 
-### 1. Metriklerde sadece sistem metrikleri var, HTTP metrikleri yok
+### 1. Metriklerde sadece DB/SQL metrikleri var, HTTP metrikleri yok
 
-**Sebep:** Wipe sonrası henüz bir HTTP isteği yapılmamıştır.
+**Sebep:** Henüz uygulama trafiği oluşmamıştır.
 
 **Çözüm:** HTTP metrikleri middleware tarafından istek sırasında kaydedilir. Herhangi bir API endpoint'ine istek atın, ardından `/metrics`'i tekrar kontrol edin.
 
 ### 2. `/metrics` endpoint'i çok yavaş (10+ saniye)
 
-**Sebep:** Veritabanı sunucusu erişilemez durumda ve bağlantı timeout'u bekleniyordur.
+**Sebep:** DB durum sorguları yavaşlıyor veya MySQL dışı sürücüde sessiz fallback yaşanıyordur.
 
-**Çözüm:** Paket otomatik olarak `fsockopen()` ile 2 saniyelik TCP check yapar. Eğer hâlâ yavaşsa, config'den DB metriklerini kapatın:
+**Çözüm:** Rehber yüzeyinde yalnızca `db_client_*` metrikleri toplanır. Gerekirse config'den DB metriklerini kapatın:
 
 ```php
 'system_metrics' => [
     'database' => false,
-    'health' => false,
 ],
 ```
 
@@ -784,11 +686,11 @@ composer dump-autoload
 php artisan package:discover
 ```
 
-### 5. Redis `wipe-metrics` çalışmıyor / Eski veriler silinmiyor
+### 5. Redis'te eski metrikler silinmiyor
 
 **Sebep:** Redis prefix uyumsuzluğu olabilir.
 
-**Çözüm:** Paket, Laravel'in Redis prefix'ini (`laravel_database_`) otomatik algılar ve Lua script ile doğru key'leri siler. `config/database.php`'de Redis prefix'inizi kontrol edin.
+**Çözüm:** Paket, Laravel'in Redis prefix'ini (`laravel_database_`) otomatik algılar. `config/database.php` içindeki Redis prefix'i ile `ORCHESTRATOR_PREFIX` değerinizin beklediğiniz key setini ürettiğini kontrol edin.
 
 ### 6. Aynı Redis'te iki projenin verileri karışıyor
 

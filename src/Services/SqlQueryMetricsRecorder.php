@@ -45,8 +45,8 @@ class SqlQueryMetricsRecorder
         $this->maxUniqueQueries = max(1, (int) ($config['max_unique_queries'] ?? 100));
         $this->ignorePatterns = $config['ignore_patterns'] ?? [];
         $this->buckets = $config['histogram_buckets'] ?? [
-            0.001, 0.005, 0.01, 0.025, 0.05, 0.1,
-            0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            0.005, 0.01, 0.025, 0.05, 0.1, 0.25,
+            0.5, 1.0, 2.5, 5.0, 10.0,
         ];
     }
 
@@ -66,9 +66,9 @@ class SqlQueryMetricsRecorder
             }
 
             $labels = [
+                $parsed['query_hash'],
                 $parsed['operation'],
                 $parsed['table'],
-                $parsed['query_hash'],
             ];
 
             if ($this->includeQueryLabel) {
@@ -97,9 +97,9 @@ class SqlQueryMetricsRecorder
             }
 
             $this->errorCounter->inc([
+                $parsed['query_hash'],
                 $parsed['operation'],
                 $parsed['table'],
-                $parsed['query_hash'],
             ]);
         } catch (\Throwable $e) {
             $this->reportOnce($e);
@@ -156,7 +156,7 @@ class SqlQueryMetricsRecorder
             return;
         }
 
-        $labelNames = ['operation', 'table', 'query_hash'];
+        $labelNames = ['query_hash', 'operation', 'table'];
 
         if ($this->includeQueryLabel) {
             $labelNames[] = 'query';
@@ -165,7 +165,7 @@ class SqlQueryMetricsRecorder
         $this->durationHistogram = $this->registry->getOrRegisterHistogram(
             'sql',
             'query_duration_seconds',
-            'Duration of SQL queries in seconds.',
+            'SQL query execution duration',
             $labelNames,
             $this->buckets
         );
@@ -180,8 +180,8 @@ class SqlQueryMetricsRecorder
         $this->errorCounter = $this->registry->getOrRegisterCounter(
             'sql',
             'query_errors_total',
-            'Total number of SQL query errors.',
-            ['operation', 'table', 'query_hash']
+            'SQL query error count',
+            ['query_hash', 'operation', 'table']
         );
     }
 

@@ -36,9 +36,9 @@ class SqlParser
     public static function normalize(string $sql): string
     {
         $normalized = trim($sql);
+        $normalized = preg_replace("/'[^']*'/", '?', $normalized) ?? $normalized;
+        $normalized = preg_replace('/(?<=[\s,=(])\d+(?=[\s,);\]]|$)/', '?', $normalized) ?? $normalized;
         $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
-        $normalized = preg_replace('/\'(?:[^\'\\\\]|\\\\.)*\'/', '?', $normalized) ?? $normalized;
-        $normalized = preg_replace('/(?<=[\s,=(])[-+]?\d+(?:\.\d+)?(?=[\s,);\]]|$)/', '?', $normalized) ?? $normalized;
 
         return trim($normalized);
     }
@@ -184,7 +184,7 @@ class SqlParser
         $sql = preg_replace('/\s+/', ' ', trim($sql));
 
         if (strlen($sql) > $maxLength) {
-            return substr($sql, 0, $maxLength) . '…';
+            return substr($sql, 0, $maxLength);
         }
 
         return $sql;

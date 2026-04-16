@@ -219,8 +219,6 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
 
             $router->get('/__apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
             $router->get('/apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
-            $router->delete('/__apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'clear']);
-            $router->delete('/apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'clear']);
         });
     }
 

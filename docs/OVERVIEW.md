@@ -16,7 +16,7 @@
 Tek bir Composer paketi:
 1. `composer require fogeto/laravel-server-orchestrator`
 2. `.env`'e `ORCHESTRATOR_PREFIX=proje_adi`
-3. Bitti — HTTP metrikleri, sistem metrikleri, sağlık kontrolü otomatik
+3. Bitti — HTTP, SQL, DB client metrikleri ve APM hata feed'i otomatik
 
 ---
 
@@ -50,7 +50,7 @@ laravel-server-orchestrator/
 │   ├── TECHNICAL_NOTES.md               # Bug fix'ler, edge case'ler, kararlar
 │   └── EXPECTED_OUTPUTS.md              # Beklenen metrik çıktıları
 ├── routes/
-│   └── metrics.php                      # GET /metrics, POST /wipe-metrics
+│   └── metrics.php                      # GET /metrics
 └── src/
     ├── Adapters/
     │   └── PredisAdapter.php            # Redis storage adapter (custom)
@@ -86,9 +86,8 @@ HTTP İsteği gelir
        │  5. resolveEndpoint() → URI normalizasyonu ({id}, {uuid})
        │  6. resolveControllerAction() → Controller@method
        │
-       ├── histogram.observe($duration, labels)
-       ├── counter.inc(labels)
-       └── if (4xx/5xx) → errorCounter.inc(labels)
+    ├── histogram.observe($duration, labels)
+    └── counter.inc(labels)
               │
               ▼
          Redis'e yazılır
@@ -98,7 +97,7 @@ HTTP İsteği gelir
 ┌──────────────────────────┐
 │  GET /metrics            │
 │  MetricsController@index │
-│  1. collectSystemMetrics │  ← Anlık gauge'lar (PHP, memory, DB, OPcache)
+│  1. collectDatabaseMetrics │ ← db_client_* gauge'ları
 │  2. registry->collect()  │  ← Redis'ten histogram/counter/gauge oku
 │  3. RenderTextFormat     │  ← Prometheus text format'a çevir
 └──────────────────────────┘
@@ -148,9 +147,6 @@ composer update fogeto/laravel-server-orchestrator
 ```bash
 # Sunucuyu başlat
 php artisan serve
-
-# Metrikleri temizle
-curl -X POST http://localhost:8000/wipe-metrics
 
 # Birkaç istek at
 curl http://localhost:8000/api/users

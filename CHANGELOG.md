@@ -3,6 +3,45 @@
 Tüm önemli değişiklikler bu dosyada belgelenir.  
 Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uygundur.
 
+## [2.0.0] - 2026-04-16
+
+### Changed
+- Varsayılan metrics surface rehberle birebir hizalandı; public route artık yalnızca `GET /metrics`
+- HTTP metrics surface sadece `http_request_duration_seconds`, `http_requests_received_total` ve `http_requests_in_progress` ailelerini üretir
+- SQL metrics label sırası rehbere göre `query_hash`, `operation`, `table`, `query` olarak değiştirildi
+- SQL normalize/truncate davranışı rehbere göre suffix eklemeden düz kesme yapacak şekilde güncellendi
+- DB metrics surface sadece `db_client_connections_max`, `db_client_connections_usage` ve `db_client_connections_pending_requests` ailelerini üretir
+- APM JSON surface yalnızca GET endpoint'leri ile rehbere hizalandı; filtreler kaldırıldı ve varsayılan listede sadece incoming event'ler gösterilir
+- APM IP koruması env üzerinden yönetilir hale getirildi ve varsayılanı `false` yapıldı
+
+### Removed
+- Varsayılan route surface'tan `/api/metrics`, `/wipe-metrics` ve `/api/wipe-metrics` kaldırıldı
+- Varsayılan metrics surface'tan `http_requests_total`, `http_errors_total`, `db_connections_active`, `db_connections_max`, `php_info`, `process_*`, `php_opcache_*` ve `app_health_status` kaldırıldı
+- APM DELETE endpoint'leri kaldırıldı
+
+### Fixed
+- APM timestamp, header redaction ve body truncation davranışı rehber formatına çekildi
+- README ve docs varsayılan runtime surface ile yeniden hizalandı
+
+## [1.1.0] - 2026-04-16
+
+### Added
+- HTTP tarafında `http_requests_received_total` ve `http_requests_in_progress` metrikleri eklendi
+- SQL tarafında `sql_query_errors_total` metriği eklendi
+- `/metrics` ve `/wipe-metrics` için kök route alias'ları eklendi
+- DB pool görünürlüğü için `db_client_connections_usage`, `db_client_connections_max` ve `db_client_connections_pending_requests` metrikleri eklendi
+- `ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES` env variable desteği eklendi
+
+### Changed
+- SQL query hash üretimi normalize edilmiş sorgu üzerinden kısa SHA-256 formatına geçirildi
+- SQL query label davranışı rehber uyumu için varsayılan olarak açık hale getirildi
+- APM outgoing capture davranışı `capture_outgoing` config ayarına bağlandı
+- README ve dokümanlar yeni metrik seti ve `/metrics` kullanımıyla hizalandı
+
+### Fixed
+- `QueryException` durumlarında SQL hata metriğinin exception handler üzerinden raporlanması sağlandı
+- Middleware ekleme akışında kernel method kontrolleri güvenli helper metodlara taşındı
+
 ## [1.0.6] - 2026-02-11
 
 ### Fixed

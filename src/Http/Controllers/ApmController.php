@@ -50,31 +50,13 @@ class ApmController extends Controller
     public function index(Request $request): JsonResponse
     {
         // IP koruması
-        if (!$this->isAllowed($request)) {
-            return response()->json([
-                'error' => 'Forbidden',
-                'message' => 'IP address not allowed.',
-            ], 403);
+        if (! $this->isAllowed($request)) {
+            return response()->json([], 403);
         }
 
-        // Opsiyonel filtreler
-        $errors = $this->buffer->getAll();
-
-        // source filtresi: ?source=incoming veya ?source=outgoing
-        $sourceFilter = $request->query('source');
-        if ($sourceFilter !== null) {
-            $errors = array_values(array_filter($errors, function ($event) use ($sourceFilter) {
-                return ($event['source'] ?? '') === $sourceFilter;
-            }));
-        }
-
-        // status_code filtresi: ?status_code=500
-        $statusCodeFilter = $request->query('status_code');
-        if ($statusCodeFilter !== null) {
-            $errors = array_values(array_filter($errors, function ($event) use ($statusCodeFilter) {
-                return (string) ($event['statusCode'] ?? '') === $statusCodeFilter;
-            }));
-        }
+        $errors = array_values(array_filter($this->buffer->getAll(), static function (array $event): bool {
+            return ! isset($event['source']) || $event['source'] === 'incoming';
+        }));
 
         return response()->json($errors);
     }
@@ -113,7 +95,7 @@ class ApmController extends Controller
         }
 
         // IP koruması devre dışıysa herkese açık
-        if (!config('server-orchestrator.apm.ip_protection', true)) {
+        if (!config('server-orchestrator.apm.ip_protection', false)) {
             return true;
         }
 

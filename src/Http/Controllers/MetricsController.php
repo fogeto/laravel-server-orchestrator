@@ -19,7 +19,7 @@ class MetricsController extends Controller
      */
     public function index(Request $request): Response
     {
-        $this->collectSystemMetrics();
+        $this->collectDatabaseMetrics();
 
         $renderer = new RenderTextFormat();
         $result = $renderer->render($this->registry->getMetricFamilySamples());
@@ -153,27 +153,11 @@ class MetricsController extends Controller
             $threadsRunning = $statusValues['Threads_running'] ?? null;
             $maxConnections = ! empty($dbMaxConnections) ? (int) $dbMaxConnections[0]->Value : null;
 
-            if ($threadsConnected !== null) {
-                $gauge = $this->registry->getOrRegisterGauge(
-                    'db',
-                    'connections_active',
-                    'Active database connections'
-                );
-                $gauge->set($threadsConnected);
-            }
-
             if ($maxConnections !== null) {
-                $gauge = $this->registry->getOrRegisterGauge(
-                    'db',
-                    'connections_max',
-                    'Maximum database connection limit'
-                );
-                $gauge->set($maxConnections);
-
                 $poolMaxGauge = $this->registry->getOrRegisterGauge(
                     'db_client',
                     'connections_max',
-                    'Maximum size of the database connection pool.'
+                    'Maximum pool connections'
                 );
                 $poolMaxGauge->set($maxConnections);
             }
@@ -185,7 +169,7 @@ class MetricsController extends Controller
                 $usageGauge = $this->registry->getOrRegisterGauge(
                     'db_client',
                     'connections_usage',
-                    'Number of connections in the database connection pool by state.',
+                    'Database connections by state',
                     ['state']
                 );
                 $usageGauge->set($idleConnections, ['idle']);
@@ -194,7 +178,7 @@ class MetricsController extends Controller
                 $pendingGauge = $this->registry->getOrRegisterGauge(
                     'db_client',
                     'connections_pending_requests',
-                    'Number of requests waiting for a database connection.'
+                    'Pending connection requests'
                 );
                 $pendingGauge->set(0);
             }

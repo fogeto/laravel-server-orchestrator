@@ -26,7 +26,7 @@ class PrometheusMiddleware
         $inProgressGauge = $this->registry->getOrRegisterGauge(
             'http',
             'requests_in_progress',
-            'The number of HTTP requests currently in progress.',
+            'The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair.',
             ['method', 'controller', 'action', 'endpoint']
         );
         $inProgressGauge->inc($inProgressLabels);
@@ -43,47 +43,27 @@ class PrometheusMiddleware
         $code = (string) $response->getStatusCode();
 
         $buckets = config('server-orchestrator.histogram_buckets', [
-            0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
-            1.0, 2.5, 5.0, 10.0, 30.0,
+            0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128,
+            0.256, 0.512, 1.024, 2.048, 4.096, 8.192, 16.384, 32.768,
         ]);
 
         // Request duration histogram
         $histogram = $this->registry->getOrRegisterHistogram(
             'http',
             'request_duration_seconds',
-            'The duration of HTTP requests processed by a Laravel application.',
+            'The duration of HTTP requests processed by an ASP.NET Core application.',
             ['code', 'method', 'controller', 'action', 'endpoint'],
             $buckets
         );
         $histogram->observe($duration, [$code, $method, $controller, $action, $endpoint]);
 
-        // Total requests counter
-        $counter = $this->registry->getOrRegisterCounter(
-            'http',
-            'requests_total',
-            'Total number of HTTP requests.',
-            ['code', 'method', 'controller', 'action', 'endpoint']
-        );
-        $counter->inc([$code, $method, $controller, $action, $endpoint]);
-
         $receivedCounter = $this->registry->getOrRegisterCounter(
             'http',
             'requests_received_total',
-            'Total number of HTTP requests received.',
+            'Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.',
             ['code', 'method', 'controller', 'action', 'endpoint']
         );
         $receivedCounter->inc([$code, $method, $controller, $action, $endpoint]);
-
-        // Error counter (4xx ve 5xx)
-        if ($response->getStatusCode() >= 400) {
-            $errorCounter = $this->registry->getOrRegisterCounter(
-                'http',
-                'errors_total',
-                'Total number of HTTP errors (4xx and 5xx).',
-                ['code', 'method', 'controller', 'action', 'endpoint']
-            );
-            $errorCounter->inc([$code, $method, $controller, $action, $endpoint]);
-        }
 
         return $response;
     }
@@ -95,10 +75,7 @@ class PrometheusMiddleware
     private function shouldIgnore(string $path): bool
     {
         $ignorePaths = config('server-orchestrator.middleware.ignore_paths', [
-            'api/metrics',
             'metrics',
-            'api/wipe-metrics',
-            'wipe-metrics',
         ]);
 
         foreach ($ignorePaths as $ignorePath) {

@@ -23,9 +23,9 @@ Katmanlar:
 
 **Gerçek Redis key örnekleri:**
 ```
-laravel_database_prometheus:ikbackend:gauges:php_info
+laravel_database_prometheus:ikbackend:gauges:db_client_connections_max
 laravel_database_prometheus:ikbackend:gauges:meta
-laravel_database_prometheus:ikbackend:counters:http_requests_total
+laravel_database_prometheus:ikbackend:counters:http_requests_received_total
 laravel_database_prometheus:ikbackend:counters:meta
 laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
 laravel_database_prometheus:ikbackend:histograms:meta
@@ -37,7 +37,7 @@ Her metrik bir Redis Hash'tir. Key yapısı:
 
 **Gauge ve Counter:**
 ```redis
-HGETALL prometheus:ikbackend:counters:http_requests_total
+HGETALL prometheus:ikbackend:counters:http_requests_received_total
 # Field                                     → Value
 # MjAw:R0VU:VXNlckNvbnRyb2xsZXI=:aW5kZXg=:/YXBpL3VzZXJz → 42
 # Base64 encode edilmiş label değerleri      → sayaç değeri
@@ -57,8 +57,8 @@ HGETALL prometheus:ikbackend:histograms:http_request_duration_seconds
 **Meta hash'ler:**
 ```redis
 HGETALL prometheus:ikbackend:counters:meta
-# Field: http_requests_total
-# Value: {"name":"http_requests_total","help":"Total...","labelNames":["code","method","controller","action","endpoint"]}
+# Field: http_requests_received_total
+# Value: {"name":"http_requests_received_total","help":"Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.","labelNames":["code","method","controller","action","endpoint"]}
 ```
 
 ---

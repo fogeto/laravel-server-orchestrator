@@ -30,7 +30,7 @@
 │  │ Middleware      │     │ Controller      │    │ Command      │ │
 │  │                │     │                 │    │              │ │
 │  │ HTTP istekleri  │     │ GET /metrics    │    │ artisan      │ │
-│  │ izle, kaydet   │     │ POST /wipe      │    │ orchestrator │ │
+│  │ izle, kaydet   │     │ DB metrics render│    │ orchestrator │ │
 │  └───────┬────────┘     └────────┬────────┘    │ :migrate     │ │
 │          │                       │              └──────────────┘ │
 │          ▼                       ▼                               │
@@ -124,15 +124,13 @@ Prometheus PHP client'ının storage backend'i. Tüm metrik verilerini Redis has
 
 **Dosya:** `src/Http/Middleware/PrometheusMiddleware.php`
 
-Her HTTP isteğinde standart ve uyumluluk amaçlı 5 metrik kaydeder:
+Her HTTP isteğinde rehber yüzeyindeki 3 metriği kaydeder:
 
 | Metrik | Tip | Açıklama |
 |--------|-----|----------|
 | `http_request_duration_seconds` | Histogram | İstek süresi (saniye) |
 | `http_requests_in_progress` | Gauge | O anda işlenen istek sayısı |
 | `http_requests_received_total` | Counter | Standart toplam istek sayısı |
-| `http_requests_total` | Counter | Toplam istek sayısı |
-| `http_errors_total` | Counter | 4xx + 5xx hataları |
 
 **Label'lar:** `code`, `method`, `controller`, `action`, `endpoint`
 
@@ -143,25 +141,21 @@ Her HTTP isteğinde standart ve uyumluluk amaçlı 5 metrik kaydeder:
 4. `$duration` hesapla
 5. `resolveEndpoint()` → URI normalize et
 6. `resolveControllerAction()` → Controller@method çıkar
-7. HTTP duration + counter + in-progress metriklerini kaydet → Redis'e yaz
+7. HTTP duration + received + in-progress metriklerini kaydet → Redis'e yaz
 
 ### 4. MetricsController
 
 **Dosya:** `src/Http/Controllers/MetricsController.php`
 
-İki endpoint:
+Tek public endpoint:
 
 #### `GET /metrics` → `index()`
-1. `collectSystemMetrics()` çağrılır
-   - `isDbReachable()` → TCP socket check (2s timeout)
-   - Sırasıyla: php_info, uptime, memory, database, opcache, health
+1. `collectDatabaseMetrics()` çağrılır
+    - MySQL `Threads_connected`, `Threads_running`, `max_connections` okunur
+    - `db_client_connections_*` gauge'ları güncellenir
 2. `$registry->collect()` → Redis'ten HTTP metriklerini oku
 3. `RenderTextFormat::render()` → Prometheus text format'a çevir
 4. Response döndür (`Content-Type: text/plain; version=0.0.4`)
-
-#### `POST /wipe-metrics` → `wipe()`
-1. `$registry->wipeStorage()` → PredisAdapter Lua script çalıştır
-2. JSON success response döndür
 
 ### 5. MigrateFromInlineCommand
 

@@ -60,17 +60,13 @@ return [
     | Route Ayarları
     |--------------------------------------------------------------------------
     |
-    | Metrics endpoint'lerinin yapılandırması.
+    | Dokümandaki standart yüzey doğrudan /metrics endpoint'idir.
     | - enabled: Route'ları otomatik kayıt et
-    | - prefix: URL prefix'i (örn: 'api' → /api/metrics)
     | - middleware: Route'a uygulanacak ek middleware'ler
-    |
-    | Paket ayrıca kök /metrics ve /wipe-metrics alias'larını da kaydeder.
     |
     */
     'routes' => [
         'enabled' => true,
-        'prefix' => env('ORCHESTRATOR_ROUTE_PREFIX', 'api'),
         'middleware' => [], // Örn: ['auth:sanctum', 'throttle:60,1']
     ],
 
@@ -89,10 +85,7 @@ return [
         'enabled' => true,
         'groups' => ['api'],
         'ignore_paths' => [
-            'api/metrics',
             'metrics',
-            'api/wipe-metrics',
-            'wipe-metrics',
             'telescope/*',
             'horizon/*',
         ],
@@ -109,8 +102,8 @@ return [
     |
     */
     'histogram_buckets' => [
-        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
-        1.0, 2.5, 5.0, 10.0, 30.0,
+        0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128,
+        0.256, 0.512, 1.024, 2.048, 4.096, 8.192, 16.384, 32.768,
     ],
 
     /*
@@ -143,8 +136,8 @@ return [
             '/\bmigrations\b/i',
         ],
         'histogram_buckets' => [
-            0.001, 0.005, 0.01, 0.025, 0.05, 0.1,
-            0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            0.005, 0.01, 0.025, 0.05, 0.1, 0.25,
+            0.5, 1.0, 2.5, 5.0, 10.0,
         ],
     ],
 
@@ -171,7 +164,7 @@ return [
     |
     */
     'http_client_metrics' => [
-        'enabled' => env('ORCHESTRATOR_HTTP_CLIENT_ENABLED', true),
+        'enabled' => env('ORCHESTRATOR_HTTP_CLIENT_ENABLED', false),
         'ignore_hosts' => [
             // 'internal-service.local',
             // '*.internal.example.com',
@@ -195,8 +188,6 @@ return [
     |
     | Endpoint: /__apm/errors veya /apm/errors
     |   - GET: Hata listesi (en yeniden eskiye, JSON array)
-    |   - DELETE: Buffer temizle
-    |   - Filtre: ?source=incoming|outgoing, ?status_code=500
     |
     | Yakalanan status code'lar: 400, 401, 403, 404, 429, 500, 502, 503
     |
@@ -217,8 +208,13 @@ return [
         'max_body_size' => 32768, // 32KB
         'max_message_length' => 200,
         'ttl' => 86400, // 24 saat
-        'ip_protection' => true,
+        'ip_protection' => env('ORCHESTRATOR_APM_IP_PROTECTION', false),
         'allowed_ips' => array_filter([
+            env('ApmSettings__AllowedIps__0'),
+            env('ApmSettings__AllowedIps__1'),
+            env('ApmSettings__AllowedIps__2'),
+            env('ApmSettings__AllowedIps__3'),
+            env('ApmSettings__AllowedIps__4'),
             env('APM_ALLOWED_IP_0'),
             env('APM_ALLOWED_IP_1'),
             env('APM_ALLOWED_IP_2'),
@@ -226,16 +222,13 @@ return [
             env('APM_ALLOWED_IP_4'),
         ]),
         'ignore_paths' => [
-            'api/metrics',
             'metrics',
-            'api/wipe-metrics',
-            'wipe-metrics',
             '__apm/*',
             'apm/*',
             'telescope/*',
             'horizon/*',
         ],
-        'capture_outgoing' => true,
+        'capture_outgoing' => false,
     ],
 
     /*
@@ -248,12 +241,12 @@ return [
     |
     */
     'system_metrics' => [
-        'php_info' => true,
-        'memory' => true,
-        'uptime' => true,
+        'php_info' => false,
+        'memory' => false,
+        'uptime' => false,
         'database' => true,
-        'opcache' => true,
-        'health' => true,
+        'opcache' => false,
+        'health' => false,
     ],
 
 ];

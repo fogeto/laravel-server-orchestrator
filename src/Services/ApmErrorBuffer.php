@@ -107,8 +107,7 @@ class ApmErrorBuffer
     {
         $event = [
             'id' => (string) Str::uuid(),
-            'timestamp' => now()->toIso8601String(),
-            'source' => 'incoming',
+            'timestamp' => now('UTC')->toISOString(),
             'path' => $data['path'] ?? '',
             'method' => $data['method'] ?? '',
             'statusCode' => $data['statusCode'] ?? 0,
@@ -241,7 +240,7 @@ class ApmErrorBuffer
         foreach ($headers as $key => $value) {
             $normalizedKey = strtolower($key);
             if (in_array($normalizedKey, self::SENSITIVE_HEADERS, true)) {
-                $redacted[$key] = '[REDACTED]';
+                $redacted[$key] = '***REDACTED***';
             } else {
                 // Laravel header'lar array olarak gelebilir
                 $redacted[$key] = is_array($value) ? implode(', ', $value) : (string) $value;
@@ -258,7 +257,8 @@ class ApmErrorBuffer
         if (strlen($body) <= $this->maxBodySize) {
             return $body;
         }
-        return substr($body, 0, $this->maxBodySize) . '... [truncated]';
+
+        return substr($body, 0, $this->maxBodySize);
     }
 
     /**
@@ -269,7 +269,8 @@ class ApmErrorBuffer
         if (strlen($text) <= $max) {
             return $text;
         }
-        return substr($text, 0, $max) . '...';
+
+        return substr($text, 0, $max);
     }
 
     /**
