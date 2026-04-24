@@ -8,7 +8,7 @@ db_client_connections_max 100
 # HELP db_client_connections_pending_requests Pending connection requests
 # TYPE db_client_connections_pending_requests gauge
 db_client_connections_pending_requests 0
-# HELP http_request_duration_seconds The duration of HTTP requests processed by an ASP.NET Core application.
+# HELP http_request_duration_seconds The duration of HTTP requests processed by the Laravel application.
 # TYPE http_request_duration_seconds histogram
 http_request_duration_seconds_sum{code="200",method="GET",controller="",action="",endpoint="/health"} 21.97161560000002
 http_request_duration_seconds_count{code="200",method="GET",controller="",action="",endpoint="/health"} 611
@@ -1910,7 +1910,7 @@ http_request_duration_seconds_bucket{code="400",method="GET",controller="Ticket"
 http_request_duration_seconds_bucket{code="400",method="GET",controller="Ticket",action="GetAllTickets",endpoint="api/Ticket/list",le="16.384"} 1
 http_request_duration_seconds_bucket{code="400",method="GET",controller="Ticket",action="GetAllTickets",endpoint="api/Ticket/list",le="32.768"} 1
 http_request_duration_seconds_bucket{code="400",method="GET",controller="Ticket",action="GetAllTickets",endpoint="api/Ticket/list",le="+Inf"} 1
-# HELP http_requests_received_total Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.
+# HELP http_requests_received_total The total number of HTTP requests processed by the Laravel application.
 # TYPE http_requests_received_total counter
 http_requests_received_total{code="200",method="GET",controller="",action="",endpoint="/health"} 611
 http_requests_received_total{code="200",method="GET",controller="",action="",endpoint="/otel-metrics"} 679
@@ -2012,7 +2012,7 @@ http_requests_received_total{code="200",method="POST",controller="Portal",action
 http_requests_received_total{code="415",method="POST",controller="Portal",action="PdfInvoice",endpoint="api/Portal/getOutboxInvoicePdf"} 5
 http_requests_received_total{code="400",method="POST",controller="Auth",action="RefreshToken",endpoint="api/Auth/refresh-token"} 1
 http_requests_received_total{code="400",method="GET",controller="Ticket",action="GetAllTickets",endpoint="api/Ticket/list"} 1
-# HELP http_requests_in_progress The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair.
+# HELP http_requests_in_progress The number of HTTP requests currently in progress in the Laravel application.
 # TYPE http_requests_in_progress gauge
 http_requests_in_progress{method="GET",controller="",action="",endpoint="/health"} 0
 http_requests_in_progress{method="POST",controller="Invoice",action="GetProducts",endpoint="api/Invoice/getall"} 0

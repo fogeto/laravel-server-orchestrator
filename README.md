@@ -202,11 +202,13 @@ curl http://localhost:8000/apm/errors
 APM persistence için aşağıdaki env'ler kullanılır:
 
 ```env
-Logging__MongoDB__ConnectionString=mongodb://user:pass@host:27017/observability?authSource=admin
-Logging__MongoDB__DatabaseName=observability
+Logging__MongoDB__ConnectionString=mongodb://user:pass@host:27017/?authSource=admin
+Logging__MongoDB__DatabaseName=ecommerce
 ```
 
 Collection adı sabit olarak `ApmErrors` kullanılır.
+
+Database adı proje bazlı seçilmelidir. Örnek: `ecommerce`, `crm`, `hrportal`.
 
 ### APM whitelist
 

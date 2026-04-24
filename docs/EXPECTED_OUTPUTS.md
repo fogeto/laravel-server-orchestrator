@@ -18,7 +18,7 @@ db_client_connections_max 151
 # TYPE db_client_connections_pending_requests gauge
 db_client_connections_pending_requests 0
 
-# HELP http_request_duration_seconds The duration of HTTP requests processed by an ASP.NET Core application.
+# HELP http_request_duration_seconds The duration of HTTP requests processed by the Laravel application.
 # TYPE http_request_duration_seconds histogram
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.001"} 0
 http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.002"} 2
@@ -27,11 +27,11 @@ http_request_duration_seconds_bucket{code="200",method="GET",controller="UserCon
 http_request_duration_seconds_sum{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 0.041
 http_request_duration_seconds_count{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 12
 
-# HELP http_requests_in_progress The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair.
+# HELP http_requests_in_progress The number of HTTP requests currently in progress in the Laravel application.
 # TYPE http_requests_in_progress gauge
 http_requests_in_progress{method="GET",controller="UserController",action="index",endpoint="/api/users"} 1
 
-# HELP http_requests_received_total Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.
+# HELP http_requests_received_total The total number of HTTP requests processed by the Laravel application.
 # TYPE http_requests_received_total counter
 http_requests_received_total{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 12
 

@@ -11,7 +11,7 @@ Bu doküman paketin varsayılan metric ve APM yüzeyini listeler.
 | Tip | Histogram |
 | Namespace | `http` |
 | Label'lar | `code`, `method`, `controller`, `action`, `endpoint` |
-| Açıklama | The duration of HTTP requests processed by an ASP.NET Core application. |
+| Açıklama | The duration of HTTP requests processed by the Laravel application. |
 
 Bucket sınırları:
 
@@ -27,7 +27,7 @@ Bucket sınırları:
 | Tip | Counter |
 | Namespace | `http` |
 | Label'lar | `code`, `method`, `controller`, `action`, `endpoint` |
-| Açıklama | Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline. |
+| Açıklama | The total number of HTTP requests processed by the Laravel application. |
 
 ### http_requests_in_progress
 
@@ -36,7 +36,7 @@ Bucket sınırları:
 | Tip | Gauge |
 | Namespace | `http` |
 | Label'lar | `method`, `controller`, `action`, `endpoint` |
-| Açıklama | The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair. |
+| Açıklama | The number of HTTP requests currently in progress in the Laravel application. |
 
 Endpoint normalizasyonu:
 

@@ -26,7 +26,7 @@ class PrometheusMiddleware
         $inProgressGauge = $this->registry->getOrRegisterGauge(
             'http',
             'requests_in_progress',
-            'The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair.',
+            'The number of HTTP requests currently in progress in the Laravel application.',
             ['method', 'controller', 'action', 'endpoint']
         );
         $inProgressGauge->inc($inProgressLabels);
@@ -51,7 +51,7 @@ class PrometheusMiddleware
         $histogram = $this->registry->getOrRegisterHistogram(
             'http',
             'request_duration_seconds',
-            'The duration of HTTP requests processed by an ASP.NET Core application.',
+            'The duration of HTTP requests processed by the Laravel application.',
             ['code', 'method', 'controller', 'action', 'endpoint'],
             $buckets
         );
@@ -60,7 +60,7 @@ class PrometheusMiddleware
         $receivedCounter = $this->registry->getOrRegisterCounter(
             'http',
             'requests_received_total',
-            'Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.',
+            'The total number of HTTP requests processed by the Laravel application.',
             ['code', 'method', 'controller', 'action', 'endpoint']
         );
         $receivedCounter->inc([$code, $method, $controller, $action, $endpoint]);
