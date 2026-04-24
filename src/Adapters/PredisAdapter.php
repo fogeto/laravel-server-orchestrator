@@ -233,10 +233,15 @@ LUA;
     {
         $samples = [];
         foreach ($values as $labelKey => $value) {
+            $labelValues = $this->decodeLabelValues($labelKey);
+            if (! $this->hasExpectedLabelCount($meta['labelNames'] ?? [], $labelValues)) {
+                continue;
+            }
+
             $samples[] = [
                 'name' => $meta['name'],
                 'labelNames' => [],
-                'labelValues' => $this->decodeLabelValues($labelKey),
+                'labelValues' => $labelValues,
                 'value' => (float) $value,
             ];
         }
@@ -293,6 +298,9 @@ LUA;
         $samples = [];
         foreach ($grouped as $labelKey => $data) {
             $labelValues = $this->decodeLabelValues($labelKey);
+            if (! $this->hasExpectedLabelCount($meta['labelNames'] ?? [], $labelValues)) {
+                continue;
+            }
 
             // Bucket sample'ları (kümülatif)
             foreach ($meta['buckets'] as $bucket) {
@@ -397,5 +405,14 @@ LUA;
         }
 
         return array_map(fn($v) => base64_decode($v), explode(':', $encoded));
+    }
+
+    /**
+     * Eski Redis verisi yeni label semasiyla uyusmuyorsa sample'i atla.
+     * Boylece /metrics coker yerine yeni trafik geldikce veri kendini toparlar.
+     */
+    private function hasExpectedLabelCount(array $labelNames, array $labelValues): bool
+    {
+        return count($labelNames) === count($labelValues);
     }
 }

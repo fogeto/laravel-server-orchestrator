@@ -197,21 +197,17 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
      */
     private function registerApmMiddleware(): void
     {
-        $groups = config('server-orchestrator.middleware.groups', ['api']);
-
         if ($this->app->bound(Kernel::class)) {
             $kernel = $this->app->make(Kernel::class);
 
-            foreach ($groups as $group) {
-                if ($this->appendMiddlewareToGroup($kernel, $group, ApmErrorCaptureMiddleware::class)) {
-                    continue;
-                }
-
-                if ($this->pushGlobalMiddleware($kernel, ApmErrorCaptureMiddleware::class)) {
-                    break;
-                }
+            // APM hata yakalama, route 404'leri ve grup disi endpoint'leri de
+            // gormesi gerektigi icin global middleware olarak eklenir.
+            if ($this->pushGlobalMiddleware($kernel, ApmErrorCaptureMiddleware::class)) {
+                return;
             }
         }
+
+        $groups = config('server-orchestrator.middleware.groups', ['api']);
 
         $router = $this->app->make(\Illuminate\Routing\Router::class);
 
