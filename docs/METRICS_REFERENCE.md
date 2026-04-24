@@ -1,22 +1,19 @@
-# Metrik Referansi
+# Metrik Referansı
 
-Bu dokuman, paketin rehberle hizali varsayilan metric yuzeyini listeler.
+Bu doküman paketin varsayılan metric ve APM yüzeyini listeler.
 
----
-
-## HTTP Metrikleri
+## HTTP metrikleri
 
 ### http_request_duration_seconds
 
-| Alan | Deger |
+| Alan | Değer |
 |------|-------|
 | Tip | Histogram |
 | Namespace | `http` |
-| Ad | `request_duration_seconds` |
-| Aciklama | The duration of HTTP requests processed by an ASP.NET Core application. |
 | Label'lar | `code`, `method`, `controller`, `action`, `endpoint` |
+| Açıklama | The duration of HTTP requests processed by an ASP.NET Core application. |
 
-Bucket sinirlari:
+Bucket sınırları:
 
 ```
 0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128,
@@ -25,135 +22,117 @@ Bucket sinirlari:
 
 ### http_requests_received_total
 
-| Alan | Deger |
+| Alan | Değer |
 |------|-------|
 | Tip | Counter |
 | Namespace | `http` |
-| Ad | `requests_received_total` |
-| Aciklama | Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline. |
 | Label'lar | `code`, `method`, `controller`, `action`, `endpoint` |
+| Açıklama | Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline. |
 
 ### http_requests_in_progress
 
-| Alan | Deger |
+| Alan | Değer |
 |------|-------|
 | Tip | Gauge |
 | Namespace | `http` |
-| Ad | `requests_in_progress` |
-| Aciklama | The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair. |
 | Label'lar | `method`, `controller`, `action`, `endpoint` |
+| Açıklama | The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair. |
 
-HTTP endpoint normalizasyonu:
+Endpoint normalizasyonu:
 
-- Route tanimliysa `route()->uri()` kullanilir.
-- Sayisal id segmentleri `{id}` olarak normalize edilir.
-- UUID segmentleri `{uuid}` olarak normalize edilir.
-- Sonuc her zaman `/` ile baslar.
+- Route tanımlıysa `route()->uri()` kullanılır.
+- Sayısal segmentler `{id}` olur.
+- UUID segmentleri `{uuid}` olur.
+- Sonuç her zaman `/` ile başlar.
 
----
-
-## SQL Metrikleri
+## SQL metrikleri
 
 ### sql_query_duration_seconds
 
-| Alan | Deger |
+| Alan | Değer |
 |------|-------|
 | Tip | Histogram |
 | Namespace | `sql` |
-| Ad | `query_duration_seconds` |
-| Aciklama | SQL query execution duration |
-| Label'lar | `query_hash`, `operation`, `table`, `query` |
+| Varsayılan label'lar | `query_hash`, `operation`, `table` |
+| Opsiyonel label | `query` (`ORCHESTRATOR_SQL_QUERY_LABEL=true`) |
+| Açıklama | SQL query execution duration |
 
-Bucket sinirlari:
+Bucket sınırları:
 
 ```
 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
 ```
 
-Normalizasyon kurallari:
+Normalizasyon kuralları:
 
-- Tek tirnakli string literal'ler `?` ile degistirilir.
-- Sayisal literal'ler `?` ile degistirilir.
-- Bosluklar tek bosluga dusurulur.
-- `query_hash`, normalize edilmis SQL'in SHA-256 hash'inin ilk 16 karakteridir.
-- `query` label'i `query_max_length` sinirinda duz kesilir, suffix eklenmez.
+- Tek tırnaklı string literal'ler `?` ile değiştirilir.
+- Sayısal literal'ler `?` ile değiştirilir.
+- Fazla boşluklar tek boşluğa indirilir.
+- `query_hash`, normalize edilmiş SQL'in SHA-256 hash'inin ilk 16 karakteridir.
+- Varsayılan ignore pattern'ları HangFire ve `information_schema` sorgularını atlar.
+- `max_unique_queries` varsayılanı `100`'dür.
 
 ### sql_query_errors_total
 
-| Alan | Deger |
+| Alan | Değer |
 |------|-------|
 | Tip | Counter |
 | Namespace | `sql` |
-| Ad | `query_errors_total` |
-| Aciklama | SQL query error count |
 | Label'lar | `query_hash`, `operation`, `table` |
+| Açıklama | SQL query error count |
 
-Bu metric, `QueryException` uygulamanin exception handler'ina raporlandiginda artar.
+Bu metric `QueryException` exception handler üzerinden raporlandığında artar.
 
----
+## DB client metrikleri
 
-## DB Client Metrikleri
-
-Bu gauge'lar `GET /metrics` sirasinda anlik olarak hesaplanir.
+Bu gauge'lar `GET /metrics` sırasında anlık hesaplanır.
 
 ### db_client_connections_max
 
-| Alan | Deger |
-|------|-------|
-| Tip | Gauge |
-| Namespace | `db_client` |
-| Ad | `connections_max` |
-| Aciklama | Maximum pool connections |
+Maximum pool connections
 
 ### db_client_connections_usage
 
-| Alan | Deger |
-|------|-------|
-| Tip | Gauge |
-| Namespace | `db_client` |
-| Ad | `connections_usage` |
-| Aciklama | Database connections by state |
-| Label'lar | `state` (`idle`, `used`) |
+Database connections by state
+
+Label: `state` (`idle`, `used`)
 
 ### db_client_connections_pending_requests
 
-| Alan | Deger |
-|------|-------|
-| Tip | Gauge |
-| Namespace | `db_client` |
-| Ad | `connections_pending_requests` |
-| Aciklama | Pending connection requests |
+Pending connection requests
 
 Notlar:
 
-- Bu metric seti MySQL `Threads_connected`, `Threads_running` ve `max_connections` degerlerinden turetilir.
-- Laravel tarafinda bekleyen pool request sayisi gozlemlenmedigi icin `connections_pending_requests` su anda `0` yayinlanir.
-- MySQL disi suruculerde veya baglanti hatasinda `db_client_*` metricleri uretilmeyebilir.
+- Laravel tarafında gerçek pool pending metriği gözlemlenemediği için varsayılan çıktı `0` yayınlar.
+- MySQL `Threads_connected`, `Threads_running` ve `max_connections` değerleri kullanılır.
 
----
+## APM hata endpoint'leri
 
-## APM Hata Endpoint'leri
+Kayıt edilen endpoint'ler:
 
-Paket iki GET endpoint'i kaydeder:
+- `GET /__apm/errors`
+- `GET /apm/errors`
 
-- `/__apm/errors`
-- `/apm/errors`
+Davranış:
 
-Davranis:
+- JSON array döner.
+- `?limit=N` destekler. Varsayılan `200`, üst sınır `500`.
+- Production ortamında IP whitelist uygulanır.
+- Localhost IP'leri her zaman izinlidir.
+- Varsayılan listede sadece incoming event'ler görünür.
+- Event'ler MongoDB `ApmErrors` collection'ında tutulur.
+- TTL index süresi varsayılan `604800` saniyedir, yani 7 gün.
+- `ext-mongodb` veya Mongo config yoksa persistence sessizce devre dışı kalır ve endpoint boş array döner.
+- `Content-Length > 5MB` veya `multipart/form-data` isteklerde body capture yapılmaz.
 
-- Yanit JSON array'dir.
-- Varsayilan olarak IP korumasi kapalidir; `ORCHESTRATOR_APM_IP_PROTECTION=true` ile acilabilir.
-- IP korumasi acikken izin verilmeyen IP icin bos array ile `403` doner.
-- Varsayilan yuzeyde sadece incoming hata event'leri listelenir.
-- Timestamp UTC ISO-8601 formatindadir.
-- Hassas request header'lari `***REDACTED***` olarak maskelenir.
-- Request ve response body alanlari limitte duz kesilir, suffix eklenmez.
+## Storage notu
 
----
+Metrics storage driver:
 
-## Varsayilan Yuzeyde Olmayanlar
+- `redis`: FPM için güvenli varsayılan
+- `in_memory`: uzun ömürlü runtime'lar için .NET'e daha yakın davranış
 
-Asagidaki metric aileleri artik varsayilan ciktida uretilmez:
+## Varsayılan yüzeyde olmayanlar
 
 - `http_requests_total`
 - `http_errors_total`

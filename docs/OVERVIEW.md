@@ -2,111 +2,79 @@
 
 ## Amaç
 
-**Laravel Server Orchestrator**, birden fazla Laravel projesinin tek bir Redis sunucusu üzerinden Prometheus metrikleri toplamasını sağlayan bir Composer paketidir. Her projeye benzersiz Redis key prefix'i atanarak veri izolasyonu garanti edilir.
+Laravel Server Orchestrator, Laravel 9-12 uygulamalarına standart bir observability yüzeyi ekleyen Composer paketidir.
 
-### Problem
+Paket üç ana alanı kapsar:
 
-- Şirket bünyesinde birden fazla Laravel projesi çalışıyor (IK Backend, HR Portal, CRM vb.)
-- Tüm projeler aynı Redis sunucusunu paylaşıyor
-- Her projeye inline (elle) Prometheus entegrasyonu yazmak tekrar eden iş ve hata kaynağı
-- Redis key'leri çakışıyor, projeler birbirinin verilerini eziyor
+| Alan | Yüzey | Saklama modeli |
+|------|-------|----------------|
+| HTTP metrikleri | `/metrics` | `redis` veya `in_memory` driver |
+| SQL metrikleri | `/metrics` | `redis` veya `in_memory` driver |
+| APM hata event'leri | `/__apm/errors`, `/apm/errors` | MongoDB, TTL 7 gün |
 
-### Çözüm
+## Önemli mimari not
 
-Tek bir Composer paketi:
-1. `composer require fogeto/laravel-server-orchestrator`
-2. `.env`'e `ORCHESTRATOR_PREFIX=proje_adi`
-3. Bitti — HTTP, SQL, DB client metrikleri ve APM hata feed'i otomatik
+Referans .NET rehberi process RAM kullanan bir metrik modeli anlatır. Laravel/FPM altında request'ler process belleğini paylaşmadığı için paket varsayılan olarak Redis tabanlı metrik driver'ı ile gelir.
 
----
+Uzun ömürlü PHP runtime kullanan projelerde `ORCHESTRATOR_METRICS_STORAGE=in_memory` seçilerek .NET'e daha yakın davranış elde edilebilir.
 
-## Paket Kimliği
+## Paket kimliği
 
 | Alan | Değer |
 |------|-------|
 | Paket adı | `fogeto/laravel-server-orchestrator` |
 | Namespace | `Fogeto\ServerOrchestrator` |
-| GitHub | https://github.com/fogeto/laravel-server-orchestrator |
-| Lisans | MIT |
-| PHP | ^8.0 |
-| Laravel | ^9.0, ^10.0, ^11.0, ^12.0 |
-| Bağımlılıklar | `predis/predis ^2.0\|^3.0`, `promphp/prometheus_client_php ^2.2` |
+| PHP | `^8.0` |
+| Laravel | `^9.0 | ^10.0 | ^11.0 | ^12.0` |
+| Varsayılan metrics driver | `redis` |
+| APM persistence | `ext-mongodb` varsa MongoDB |
 
----
-
-## Dosya Yapısı
+## Dosya yapısı
 
 ```
 laravel-server-orchestrator/
-├── composer.json
-├── README.md
-├── .gitignore
-├── config/
-│   └── server-orchestrator.php          # Tüm konfigürasyon
-├── docs/
-│   ├── OVERVIEW.md                      # Bu dosya
-│   ├── ARCHITECTURE.md                  # Mimari ve bileşen detayları
-│   ├── METRICS_REFERENCE.md             # Tüm metriklerin referansı
-│   ├── TECHNICAL_NOTES.md               # Bug fix'ler, edge case'ler, kararlar
-│   └── EXPECTED_OUTPUTS.md              # Beklenen metrik çıktıları
-├── routes/
-│   └── metrics.php                      # GET /metrics
-└── src/
-    ├── Adapters/
-    │   └── PredisAdapter.php            # Redis storage adapter (custom)
-    ├── Console/
-    │   └── Commands/
-    │       └── MigrateFromInlineCommand.php  # orchestrator:migrate komutu
-    ├── Http/
-    │   ├── Controllers/
-    │   │   └── MetricsController.php    # Metrics endpoint + sistem metrikleri
-    │   └── Middleware/
-    │       └── PrometheusMiddleware.php  # HTTP istek metrikleri
-    └── Providers/
-        └── ServerOrchestratorServiceProvider.php  # Auto-discovery provider
+├── config/server-orchestrator.php
+├── routes/metrics.php
+├── src/
+│   ├── Adapters/PredisAdapter.php
+│   ├── Contracts/IApmErrorStore.php
+│   ├── Http/
+│   │   ├── Controllers/ApmController.php
+│   │   ├── Controllers/MetricsController.php
+│   │   ├── Middleware/ApmErrorCaptureMiddleware.php
+│   │   └── Middleware/PrometheusMiddleware.php
+│   ├── Providers/ServerOrchestratorServiceProvider.php
+│   ├── Services/ApmErrorBuffer.php
+│   ├── Services/MongoApmErrorStore.php
+│   └── Services/SqlQueryMetricsRecorder.php
+└── docs/
 ```
 
----
-
-## Akış Diyagramı
+## Akış özeti
 
 ```
-HTTP İsteği gelir
-       │
-       ▼
-┌──────────────────────┐
-│  PrometheusMiddleware │  ← API middleware grubunda otomatik kayıtlı
-│  (before + after)     │
-└──────┬───────────────┘
-       │
-       │  1. shouldIgnore() → ignore_paths kontrolü
-       │  2. $start = microtime(true)
-       │  3. $response = $next($request)
-       │  4. $duration = microtime(true) - $start
-       │  5. resolveEndpoint() → URI normalizasyonu ({id}, {uuid})
-       │  6. resolveControllerAction() → Controller@method
-       │
-    ├── histogram.observe($duration, labels)
-    └── counter.inc(labels)
-              │
-              ▼
-         Redis'e yazılır
-         (PredisAdapter)
-              │
-              ▼
-┌──────────────────────────┐
-│  GET /metrics            │
-│  MetricsController@index │
-│  1. collectDatabaseMetrics │ ← db_client_* gauge'ları
-│  2. registry->collect()  │  ← Redis'ten histogram/counter/gauge oku
-│  3. RenderTextFormat     │  ← Prometheus text format'a çevir
-└──────────────────────────┘
-              │
-              ▼
-    Prometheus scrape eder
-              │
-              ▼
-    Grafana'da dashboard
+HTTP request
+   │
+   ├─ PrometheusMiddleware
+   │    ├─ endpoint normalize edilir
+   │    ├─ in-progress gauge güncellenir
+   │    └─ duration + received counter kaydedilir
+   │
+   ├─ ApmErrorCaptureMiddleware
+   │    ├─ 4xx/5xx response kontrolü
+   │    ├─ büyük upload bypass kontrolü
+   │    └─ event Mongo store kuyruğuna bırakılır
+   │
+   ├─ DB::listen + QueryException hook
+   │    ├─ sql_query_duration_seconds
+   │    └─ sql_query_errors_total
+   │
+   ├─ GET /metrics
+   │    ├─ db_client_* gauge'ları hesaplanır
+   │    └─ registry text format olarak render edilir
+   │
+   └─ GET /apm/errors
+        └─ MongoDB'den en yeni event'ler limit ile okunur
 ```
 
 ---

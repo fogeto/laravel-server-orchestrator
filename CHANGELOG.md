@@ -3,25 +3,24 @@
 Tüm önemli değişiklikler bu dosyada belgelenir.  
 Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uygundur.
 
-## [2.0.0] - 2026-04-16
+## [Unreleased]
+
+### Added
+- Mongo tabanlı APM persistence store eklendi (`MongoApmErrorStore`)
+- APM endpoint'ine `?limit=` desteği eklendi; varsayılan `200`, üst sınır `500`
+- `metrics_storage` config anahtarı ile `redis` ve `in_memory` driver seçimi eklendi
+- `ext-mongodb` önerisi composer metadata'ya eklendi
 
 ### Changed
-- Varsayılan metrics surface rehberle birebir hizalandı; public route artık yalnızca `GET /metrics`
-- HTTP metrics surface sadece `http_request_duration_seconds`, `http_requests_received_total` ve `http_requests_in_progress` ailelerini üretir
-- SQL metrics label sırası rehbere göre `query_hash`, `operation`, `table`, `query` olarak değiştirildi
-- SQL normalize/truncate davranışı rehbere göre suffix eklemeden düz kesme yapacak şekilde güncellendi
-- DB metrics surface sadece `db_client_connections_max`, `db_client_connections_usage` ve `db_client_connections_pending_requests` ailelerini üretir
-- APM JSON surface yalnızca GET endpoint'leri ile rehbere hizalandı; filtreler kaldırıldı ve varsayılan listede sadece incoming event'ler gösterilir
-- APM IP koruması env üzerinden yönetilir hale getirildi ve varsayılanı `false` yapıldı
-
-### Removed
-- Varsayılan route surface'tan `/api/metrics`, `/wipe-metrics` ve `/api/wipe-metrics` kaldırıldı
-- Varsayılan metrics surface'tan `http_requests_total`, `http_errors_total`, `db_connections_active`, `db_connections_max`, `php_info`, `process_*`, `php_opcache_*` ve `app_health_status` kaldırıldı
-- APM DELETE endpoint'leri kaldırıldı
+- APM event'leri Redis circular buffer yerine MongoDB `ApmErrors` collection'ına yazılır hale getirildi
+- APM TTL varsayılanı 7 güne çekildi
+- Production APM erişimi varsayılan olarak IP whitelist korumalı hale getirildi
+- SQL `query` label'ı varsayılan olarak kapatıldı
+- SQL ignore pattern'ları HangFire ve `information_schema` filtreleri ile hizalandı
+- Dokümantasyon baştan sona Mongo APM + metrics storage driver modeliyle güncellendi
 
 ### Fixed
-- APM timestamp, header redaction ve body truncation davranışı rehber formatına çekildi
-- README ve docs varsayılan runtime surface ile yeniden hizalandı
+- Büyük upload ve multipart isteklerde APM capture kaynaklı gereksiz body kopyalama önlendi
 
 ## [1.1.0] - 2026-04-16
 

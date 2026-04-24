@@ -8,37 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
- * APM hata endpoint'i — /__apm/errors veya /apm/errors
+ * APM hata endpoint'i — /__apm/errors veya /apm/errors.
  *
- * .NET'teki /__apm/errors endpoint'inin Laravel karşılığı.
- *
- * Özellikler:
- *   - En yeniden eskiye sıralı JSON array döndürür
- *   - Production'da IP whitelist koruması (varsayılan: sadece localhost)
- *   - DELETE method ile buffer temizleme desteği
- *   - Hem incoming (iç servis) hem outgoing (dış servis) hataları tek endpoint'te
- *
- * Response örneği:
- * [
- *   {
- *     "id": "a1b2c3d4-...",
- *     "timestamp": "2024-01-15T10:30:45+03:00",
- *     "source": "incoming",
- *     "path": "/api/users",
- *     "method": "POST",
- *     "statusCode": 400,
- *     "errorType": "Bad Request",
- *     "message": "{\"errors\":{\"email\":\"...\"}}",
- *     "requestBody": "{...}",
- *     "responseBody": "{...}",
- *     "requestHeaders": {"content-type": "application/json", "authorization": "[REDACTED]"},
- *     "responseHeaders": {"content-type": "application/json"},
- *     "durationMs": 45.23,
- *     "clientIp": "10.0.0.1",
- *     "userAgent": "Mozilla/5.0 ...",
- *     "queryString": ""
- *   }
- * ]
+ * Event'ler MongoDB'den en yeniden eskiye okunur ve `?limit=` ile sınırlandırılabilir.
+ * Varsayılan public yüzey sadece incoming event'leri döndürür.
  */
 class ApmController extends Controller
 {
@@ -49,16 +22,20 @@ class ApmController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        // IP koruması
         if (! $this->isAllowed($request)) {
-            return response()->json([], 403);
+            return response()->json([], 403, [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
 
-        $errors = array_values(array_filter($this->buffer->getAll(), static function (array $event): bool {
+        $defaultLimit = (int) config('server-orchestrator.apm.default_limit', 200);
+        $maxLimit = (int) config('server-orchestrator.apm.max_limit', 500);
+        $requestedLimit = (int) $request->query('limit', $defaultLimit);
+        $limit = min(max(1, $requestedLimit), max(1, $maxLimit));
+
+        $errors = array_values(array_filter($this->buffer->getAll($limit), static function (array $event): bool {
             return ! isset($event['source']) || $event['source'] === 'incoming';
         }));
 
-        return response()->json($errors);
+        return response()->json($errors, 200, [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
     /**

@@ -1,235 +1,133 @@
 # Mimari Dokümanı
 
-## Bileşen Haritası
+## Bileşen haritası
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    LARAVEL UYGULAMASI                            │
+│                    Laravel Uygulaması                           │
 │                                                                  │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │             ServerOrchestratorServiceProvider               │ │
-│  │                                                             │ │
+│  │          ServerOrchestratorServiceProvider                  │ │
 │  │  register()                                                 │ │
-│  │  ├─ mergeConfig()  → config/server-orchestrator.php         │ │
-│  │  └─ singleton(CollectorRegistry)                            │ │
-│  │       ├─ Redis::connection(...)                              │ │
-│  │       ├─ PredisAdapter(connection, prefix)                  │ │
-│  │       └─ fallback → InMemory adapter                        │ │
-│  │                                                             │ │
-│  │  boot()                                                     │ │
-│  │  ├─ publishes(config)                                       │ │
-│  │  ├─ commands(MigrateFromInlineCommand)                      │ │
-│  │  ├─ loadRoutesFrom(metrics.php)                             │ │
-│  │  └─ registerMiddleware()                                    │ │
-│  │       ├─ Kernel::appendMiddlewareToGroup()                  │ │
-│  │       └─ Router::pushMiddlewareToGroup()                    │ │
+│  │   ├─ mergeConfig()                                          │ │
+│  │   ├─ singleton(IApmErrorStore -> MongoApmErrorStore)        │ │
+│  │   ├─ singleton(ApmErrorBuffer)                              │ │
+│  │   └─ singleton(CollectorRegistry)                           │ │
+│  │       ├─ metrics_storage=redis     -> PredisAdapter         │ │
+│  │       └─ metrics_storage=in_memory -> InMemory              │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                                                  │
-│  ┌────────────────┐     ┌─────────────────┐    ┌──────────────┐ │
-│  │ Prometheus      │     │ Metrics         │    │ Migrate      │ │
-│  │ Middleware      │     │ Controller      │    │ Command      │ │
-│  │                │     │                 │    │              │ │
-│  │ HTTP istekleri  │     │ GET /metrics    │    │ artisan      │ │
-│  │ izle, kaydet   │     │ DB metrics render│    │ orchestrator │ │
-│  └───────┬────────┘     └────────┬────────┘    │ :migrate     │ │
-│          │                       │              └──────────────┘ │
-│          ▼                       ▼                               │
-│  ┌──────────────────────────────────────────┐                   │
-│  │           CollectorRegistry              │                   │
-│  │           (Singleton)                    │                   │
-│  │                                          │                   │
-│  │  getOrRegisterHistogram()                │                   │
-│  │  getOrRegisterCounter()                  │                   │
-│  │  getOrRegisterGauge()                    │                   │
-│  │  collect()                               │                   │
-│  │  wipeStorage()                           │                   │
-│  └───────────────┬──────────────────────────┘                   │
-│                  │                                               │
-│                  ▼                                               │
-│  ┌──────────────────────────────────────────┐                   │
-│  │           PredisAdapter                  │                   │
-│  │           (implements Adapter)           │                   │
-│  │                                          │                   │
-│  │  updateGauge()    → Redis HSET           │                   │
-│  │  updateCounter()  → Redis HINCRBYFLOAT   │                   │
-│  │  updateHistogram()→ Redis HINCRBY/FLOAT  │                   │
-│  │  collect()        → HGETALL + parse      │                   │
-│  │  wipeStorage()    → Lua KEYS + DEL       │                   │
-│  └───────────────┬──────────────────────────┘                   │
-│                  │                                               │
-└──────────────────┼───────────────────────────────────────────────┘
-                   │
-                   ▼
-           ┌───────────────┐
-           │  Redis Server  │
-           │                │
-           │  prefix:       │
-           │  laravel_db_   │
-           │  prometheus:   │
-           │  {app}:        │
-           │  gauges/       │
-           │  counters/     │
-           │  histograms/   │
-           └───────────────┘
+│  ┌────────────────────┐   ┌────────────────────┐                │
+│  │ PrometheusMiddleware│   │ApmErrorCapture... │                │
+│  │ HTTP metrics        │   │4xx/5xx event yakala│               │
+│  └─────────┬──────────┘   └──────────┬─────────┘                │
+│            │                         │                          │
+│            ▼                         ▼                          │
+│     CollectorRegistry         ApmErrorBuffer                   │
+│            │                         │                          │
+│            ▼                         ▼                          │
+│   PredisAdapter / InMemory     MongoApmErrorStore              │
+│            │                         │                          │
+│            ▼                         ▼                          │
+│         /metrics               MongoDB ApmErrors               │
+│                                                       TTL 7 gün│
+└──────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## Sınıf Sorumluları
+## Sınıf sorumlulukları
 
 ### 1. ServerOrchestratorServiceProvider
 
-**Dosya:** `src/Providers/ServerOrchestratorServiceProvider.php`
+Dosya: `src/Providers/ServerOrchestratorServiceProvider.php`
 
 | Sorumluluk | Açıklama |
 |------------|----------|
-| Config merge | Paketin default config'ini uygulamanın config'i ile birleştirir |
-| Singleton kayıt | `CollectorRegistry`'yi IoC container'a singleton olarak kaydeder |
-| Prefix sanitize | `ORCHESTRATOR_PREFIX` → lowercase, alfanumerik olmayan → `_` |
-| Redis fallback | Redis bağlantı hatası → InMemory adapter (metrik kaybı ama hata yok) |
-| Middleware kayıt | Dual yöntem: Kernel + Router (Laravel 9-12 uyumluluk) |
-| Route kayıt | `routes/metrics.php` dosyasını yükler |
-| Command kayıt | `orchestrator:migrate` artisan komutunu kaydeder |
+| Config merge | Paket config'ini uygulamaya taşır |
+| APM binding | `IApmErrorStore` için Mongo store bind eder |
+| Metrics binding | `CollectorRegistry` için storage driver seçer |
+| Middleware kayıt | Laravel 9-12 uyumlu grup ekleme yapar |
+| SQL hook | `DB::listen` ve `QueryException` raporlamasını bağlar |
 
-**Singleton yaşam döngüsü:**
+### 2. MongoApmErrorStore
 
-```
-register() çağrılır
-    └─ $this->app->singleton(CollectorRegistry::class, ...) tanımlanır
-        └─ İlk kez resolve edildiğinde (lazy):
-            ├─ Redis::connection() → Predis client
-            ├─ config prefix → sanitize → 'prometheus:{prefix}:'
-            ├─ new PredisAdapter($conn, $prefix)
-            └─ new CollectorRegistry($adapter)
-```
+Dosya: `src/Services/MongoApmErrorStore.php`
 
-### 2. PredisAdapter
+| Sorumluluk | Açıklama |
+|------------|----------|
+| Mongo bağlantısı | `Logging__MongoDB__ConnectionString` ve `DatabaseName` ile bağlanır |
+| Queue benzeri buffer | Event'leri request sonunda flush edilmek üzere bellekte tutar |
+| Batch insert | Event'leri küçük partiler halinde Mongo'ya yazar |
+| TTL index | `timestamp` alanında 7 günlük TTL index oluşturur |
+| Read API | `/apm/errors?limit=` için descending sorgu yapar |
 
-**Dosya:** `src/Adapters/PredisAdapter.php`  
-**Interface:** `Prometheus\Storage\Adapter`
+### 3. ApmErrorBuffer
 
-Prometheus PHP client'ının storage backend'i. Tüm metrik verilerini Redis hash'lerinde saklar.
+Dosya: `src/Services/ApmErrorBuffer.php`
 
-| Metot | Redis Komutu | Açıklama |
-|-------|-------------|----------|
-| `updateGauge()` | `HSET` | Gauge değerini set eder |
-| `updateCounter()` | `HINCRBYFLOAT` | Counter'ı artırır |
-| `updateHistogram()` | `HINCRBY` + `HINCRBYFLOAT` | count, sum ve bucket günceller |
-| `collectGauges()` | `HGETALL` × 2 | Meta + data hash'lerini okur |
-| `collectCounters()` | `HGETALL` × 2 | Meta + data hash'lerini okur |
-| `collectHistograms()` | `HGETALL` × 2 | Meta + data → parse → sample'lar |
-| `wipeStorage()` | Lua `KEYS` + `DEL` | Lua script ile prefix'li tüm key'leri siler |
+Uygulamanın geri kalanına tek bir capture API sunar.
 
-### 3. PrometheusMiddleware
+| Metot | Amaç |
+|-------|------|
+| `shouldCapture()` | Yakalanacak HTTP status code setini belirler |
+| `captureIncoming()` | Incoming error event'i normalize eder ve store'a bırakır |
+| `captureOutgoing()` | Opsiyonel outgoing event'i normalize eder |
+| `getAll($limit)` | Endpoint için en yeni event'leri döndürür |
 
-**Dosya:** `src/Http/Middleware/PrometheusMiddleware.php`
+### 4. PrometheusMiddleware
 
-Her HTTP isteğinde rehber yüzeyindeki 3 metriği kaydeder:
+Dosya: `src/Http/Middleware/PrometheusMiddleware.php`
 
-| Metrik | Tip | Açıklama |
-|--------|-----|----------|
-| `http_request_duration_seconds` | Histogram | İstek süresi (saniye) |
-| `http_requests_in_progress` | Gauge | O anda işlenen istek sayısı |
-| `http_requests_received_total` | Counter | Standart toplam istek sayısı |
+Üç HTTP metric ailesini üretir:
 
-**Label'lar:** `code`, `method`, `controller`, `action`, `endpoint`
+- `http_request_duration_seconds`
+- `http_requests_received_total`
+- `http_requests_in_progress`
 
-**Middleware akışı:**
-1. `shouldIgnore()` → ignore listesinde mi? (evet → bypass)
-2. `$start = microtime(true)` → kronometre başlat
-3. `$next($request)` → isteği işle
-4. `$duration` hesapla
-5. `resolveEndpoint()` → URI normalize et
-6. `resolveControllerAction()` → Controller@method çıkar
-7. HTTP duration + received + in-progress metriklerini kaydet → Redis'e yaz
+Path ignore listesi ve endpoint normalizasyonu burada uygulanır.
 
-### 4. MetricsController
+### 5. MetricsController
 
-**Dosya:** `src/Http/Controllers/MetricsController.php`
+Dosya: `src/Http/Controllers/MetricsController.php`
 
-Tek public endpoint:
+`GET /metrics` çağrısında:
 
-#### `GET /metrics` → `index()`
-1. `collectDatabaseMetrics()` çağrılır
-    - MySQL `Threads_connected`, `Threads_running`, `max_connections` okunur
-    - `db_client_connections_*` gauge'ları güncellenir
-2. `$registry->collect()` → Redis'ten HTTP metriklerini oku
-3. `RenderTextFormat::render()` → Prometheus text format'a çevir
-4. Response döndür (`Content-Type: text/plain; version=0.0.4`)
+1. `db_client_*` gauge'ları hesaplanır.
+2. Registry içindeki metric family'ler toplanır.
+3. Prometheus text format render edilir.
 
-### 5. MigrateFromInlineCommand
+### 6. SqlQueryMetricsRecorder
 
-**Dosya:** `src/Console/Commands/MigrateFromInlineCommand.php`
+Dosya: `src/Services/SqlQueryMetricsRecorder.php`
 
-Eski inline Prometheus entegrasyonundan pakete geçiş yapan artisan komutu.
+| Metrik | Davranış |
+|--------|----------|
+| `sql_query_duration_seconds` | Her query için duration observe eder |
+| `sql_query_errors_total` | `QueryException` raporlandığında artar |
 
-```bash
-php artisan orchestrator:migrate --prefix=myapp --dry-run
-```
+Varsayılan cardinality korumaları:
 
-| İşlem | Açıklama |
-|-------|----------|
-| scan() | Eski dosyaları + referansları bul |
-| removeOldFiles() | PredisAdapter, Middleware, Provider dosyalarını sil |
-| cleanKernel() | Kernel.php'den eski middleware referansını temizle |
-| cleanConfigApp() | config/app.php'den eski provider referansını temizle |
-| cleanConfigServices() | config/services.php'den prometheus bloğunu temizle |
-| cleanRoutes() | routes/api.php'den eski metrics route'larını temizle |
-| setupEnvPrefix() | .env'e ORCHESTRATOR_PREFIX ekle |
-| publishConfig() | Paket config dosyasını publish et |
+- `max_unique_queries = 100`
+- HangFire ve `information_schema` filtreleri
+- `query` label'i varsayılan olarak kapalı
 
----
+## Config özeti
 
-## Dependency Injection Akışı
+| Config | Default | Not |
+|-------|---------|-----|
+| `metrics_storage` | `redis` | FPM güvenli varsayılan |
+| `metrics_ttl` | `86400` | Sadece redis driver için |
+| `sql_metrics.include_query_label` | `false` | İstenirse açılabilir |
+| `apm.ttl` | `604800` | Mongo TTL, 7 gün |
+| `apm.default_limit` | `200` | `/apm/errors` varsayılan limiti |
+| `apm.max_limit` | `500` | Üst sınır |
+| `apm.bypass_threshold_bytes` | `5242880` | 5MB üstü body capture edilmez |
 
-```
-Request gelir
-    │
-    ├─ PrometheusMiddleware
-    │      └─ __construct(CollectorRegistry $registry)  ← IoC auto-inject
-    │              └─ CollectorRegistry
-    │                      └─ PredisAdapter
-    │                              └─ Redis Connection
-    │
-    └─ MetricsController
-           └─ __construct(CollectorRegistry $registry)  ← IoC auto-inject
-                   └─ Aynı singleton instance
-```
-
-**Önemli:** `CollectorRegistry` singleton olduğu için middleware ve controller **aynı instance**'ı kullanır. Bu, middleware'in yazdığı metriklerin controller'dan okunabilmesini garanti eder.
-
----
-
-## Laravel Sürüm Uyumluluğu
+## Laravel uyumluluğu
 
 | Özellik | Laravel 9 | Laravel 10 | Laravel 11 | Laravel 12 |
 |---------|-----------|------------|------------|------------|
-| Auto-discovery | ✅ | ✅ | ✅ | ✅ |
-| Kernel middleware | ✅ `appendMiddlewareToGroup` | ✅ | ❌ (Kernel yok) | ❌ |
-| Router middleware | ✅ `pushMiddlewareToGroup` | ✅ | ✅ | ✅ |
-| Config merge | ✅ | ✅ | ✅ | ✅ |
-| Route loading | ✅ | ✅ | ✅ | ✅ |
+| Auto-discovery | Evet | Evet | Evet | Evet |
+| Kernel append | Evet | Evet | Hayır | Hayır |
+| Router push | Evet | Evet | Evet | Evet |
 
-**Not:** Laravel 11+ Kernel dosyası kaldırıldı. Bu yüzden middleware kaydı iki yöntemle yapılır:
-- `Kernel::appendMiddlewareToGroup()` → Laravel 9/10 için
-- `Router::pushMiddlewareToGroup()` → Laravel 11/12 için (ve tüm sürümlerde yedek)
-
----
-
-## Config Parametreleri
-
-Detaylı config açıklamaları `config/server-orchestrator.php` içinde bulunur.
-
-| Config Key | Env Variable | Default | Açıklama |
-|-----------|-------------|---------|----------|
-| `enabled` | `ORCHESTRATOR_ENABLED` | `true` | Paketi aktif/pasif yap |
-| `prefix` | `ORCHESTRATOR_PREFIX` | `APP_NAME` | Redis key prefix'i |
-| `redis_connection` | `ORCHESTRATOR_REDIS_CONNECTION` | `default` | Redis bağlantı adı |
-| `routes.enabled` | — | `true` | Metrics route'larını kaydet |
-| `routes.prefix` | `ORCHESTRATOR_ROUTE_PREFIX` | `api` | Route URL prefix'i |
-| `routes.middleware` | — | `[]` | Ek route middleware'leri |
-| `middleware.enabled` | — | `true` | HTTP middleware'i kaydet |
-| `middleware.groups` | — | `['api']` | Hangi gruplara eklenecek |
-| `middleware.ignore_paths` | — | `[...]` | İzlenmeyen path'ler |
-| `histogram_buckets` | — | `[0.005...30.0]` | Histogram sınırları |
-| `system_metrics.*` | — | `true` | Sistem metrikleri aç/kapat |
+Paket middleware kayıtlarında hem Kernel hem Router yolunu denediği için 9-12 arası tek kod yüzeyiyle çalışır.

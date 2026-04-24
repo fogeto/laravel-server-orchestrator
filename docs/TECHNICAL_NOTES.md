@@ -1,123 +1,91 @@
 # Teknik Notlar ve Bilinen Sorunlar
+# Teknik Notlar
 
-Bu doküman, paket geliştirilirken karşılaşılan kritik sorunları, alınan kararları ve edge case'leri detaylandırır. **Gelecekte bu pakete dokunacak herkes bu dokümanı okumalıdır.**
+Bu doküman mevcut implementasyonun kararlarını ve Laravel'e özgü adaptasyonlarını toplar.
 
----
+## 1. Metrics storage driver seçimi
 
-## 1. Redis Key Yapısı
+Referans .NET implementasyonu process RAM kullanır. Laravel/FPM altında request'ler process belleğini paylaşmadığı için varsayılan driver `redis` olarak bırakıldı.
 
-### Key Format
+Desteklenen modlar:
+
+- `redis`: varsayılan, FPM için güvenli
+- `in_memory`: uzun ömürlü runtime kullanan projeler için
+
+Redis driver seçildiğinde `PredisAdapter` metric family'leri hash'lerde saklar ve `metrics_ttl` uygular.
+
+## 2. Redis key yapısı
+
+Redis driver kullanıldığında key formatı:
 
 ```
-{laravel_prefix}{prometheus_prefix}{type}:{metric_name}
+{laravel_prefix}prometheus:{prefix}:{type}:{metric_name}
 ```
 
-Katmanlar:
+Örnek:
 
-| Katman | Kaynak | Örnek |
-|--------|--------|-------|
-| `laravel_prefix` | `config/database.php → redis.options.prefix` | `laravel_database_` |
-| `prometheus_prefix` | `config/server-orchestrator.php → prefix` + sanitize | `prometheus:ikbackend:` |
-| `type` | Metrik türü | `gauges:`, `counters:`, `histograms:` |
-| `metric_name` | Prometheus metric adı | `http_request_duration_seconds` |
-
-**Gerçek Redis key örnekleri:**
 ```
-laravel_database_prometheus:ikbackend:gauges:db_client_connections_max
-laravel_database_prometheus:ikbackend:gauges:meta
 laravel_database_prometheus:ikbackend:counters:http_requests_received_total
-laravel_database_prometheus:ikbackend:counters:meta
 laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
-laravel_database_prometheus:ikbackend:histograms:meta
 ```
 
-### Hash Yapısı
+## 3. Mongo APM persistence
 
-Her metrik bir Redis Hash'tir. Key yapısı:
+APM event'leri MongoDB `ApmErrors` collection'ına yazılır.
 
-**Gauge ve Counter:**
-```redis
-HGETALL prometheus:ikbackend:counters:http_requests_received_total
-# Field                                     → Value
-# MjAw:R0VU:VXNlckNvbnRyb2xsZXI=:aW5kZXg=:/YXBpL3VzZXJz → 42
-# Base64 encode edilmiş label değerleri      → sayaç değeri
-```
+Kararlar:
 
-**Histogram:**
-```redis
-HGETALL prometheus:ikbackend:histograms:http_request_duration_seconds
-# Base64Key:count    → 42
-# Base64Key:sum      → 3.14159
-# Base64Key:bucket:0.005  → 5
-# Base64Key:bucket:0.01   → 12
-# Base64Key:bucket:0.025  → 25
-# ...
-```
+- `timestamp` alanı TTL index için BSON date olarak saklanır.
+- TTL süresi config'ten gelir, varsayılan 7 gündür.
+- Event insert'i response sonrası `app()->terminating()` içinde flush edilir.
+- Tek request içinde en fazla `channel_capacity` kadar event queue'lanır.
+- Batch insert boyutu varsayılan `50`'dir.
 
-**Meta hash'ler:**
-```redis
-HGETALL prometheus:ikbackend:counters:meta
-# Field: http_requests_received_total
-# Value: {"name":"http_requests_received_total","help":"Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.","labelNames":["code","method","controller","action","endpoint"]}
-```
+Mongo config yoksa veya `ext-mongodb` yüklü değilse:
 
----
+- request akışı kırılmaz
+- capture sessizce devre dışı kalır
+- `/apm/errors` boş array döndürür
 
-## 2. Label Encoding (Base64 + Colon)
+## 4. APM capture bypass kuralları
 
-### Neden Base64?
+Memory baskısını önlemek için şu isteklerde body capture yapılmaz:
 
-Label değerleri rastgele string olabilir (`/api/users/{id}`, `UserController`, `200`). Redis hash field'ında güvenli saklamak için base64 encode edilir.
+- `Content-Length > 5MB`
+- `Content-Type: multipart/form-data`
 
-### Encoding Formatı
+Request yine normal akar; sadece APM body alanları atlanır.
 
-```php
-// Encoding
-$labelValues = ['200', 'GET', 'UserController', 'index', '/api/users'];
-$encoded = implode(':', array_map(fn($v) => base64_encode((string)$v), $labelValues));
-// Sonuç: "MjAw:R0VU:VXNlckNvbnRyb2xsZXI=:aW5kZXg=:L2FwaS91c2Vycw=="
+## 5. SQL cardinality korumaları
 
-// Decoding
-$decoded = array_map(fn($v) => base64_decode($v), explode(':', $encoded));
-// Sonuç: ['200', 'GET', 'UserController', 'index', '/api/users']
-```
+Varsayılan korumalar:
 
-### ⚠️ KRİTİK: Base64 ve `:` Çakışması
+- `max_unique_queries = 100`
+- `query` label varsayılan olarak kapalı
+- HangFire ve `information_schema` sorguları filtrelenir
 
-Base64 çıktısı `:` içerebilir (yalnızca padding'de değil, encoded value genelinde de). Label değerlerinin kendisi `:`separator olarak kullanılsa da **base64 encode edilmiş** değerler de `:` içerebilir.
+Amaç, `/metrics` üzerinde kontrolsüz time-series patlamasını sınırlamaktır.
 
-**Problem:** Histogram field'ları `{labelKey}:sum`, `{labelKey}:count`, `{labelKey}:bucket:{le}` formatındadır. `labelKey` kendisi `:` içerdiği için basit `explode(':')` ile parse etmek **MÜMKÜN DEĞİLDİR**.
+## 6. DB pool metriği yaklaşımı
 
-**Çözüm:** Suffix-based parsing:
+Laravel tarafında .NET'teki `db.client.connections.*` kaynaklarının birebir karşılığı yoktur. Bu yüzden package şu yaklaşımı kullanır:
 
-```php
-// ❌ YANLIŞ — base64'teki ':' nedeniyle bozulur
-$parts = explode(':', $field);
-$suffix = end($parts);
+- `Threads_connected`
+- `Threads_running`
+- `max_connections`
 
-// ✅ DOĞRU — sondan suffix kontrolü
-if (str_ends_with($field, ':sum')) {
-    $labelKey = substr($field, 0, -4);  // Son 4 karakter ':sum'
-} elseif (str_ends_with($field, ':count')) {
-    $labelKey = substr($field, 0, -6);  // Son 6 karakter ':count'
-} elseif (preg_match('/^(.+):bucket:([^:]+)$/', $field, $matches)) {
-    $labelKey = $matches[1];
-    $le = $matches[2];  // Bucket sınırı (ör. "0.005", "10")
-}
-```
+Buradan `db_client_connections_usage`, `db_client_connections_max` ve `db_client_connections_pending_requests` türetilir.
 
-**Bu regex neden güvenli?** Bucket `le` değerleri sayısal olduğu için `:` içermez. `[^:]+` pattern'i en sondaki `:` ayrımından sonraki sayıyı yakalar.
+`connections_pending_requests` şu anda her zaman `0` yayınlanır.
 
----
+## 7. Bilinen limitasyonlar
 
-## 3. Redis Double-Prefix Sorunu
-
-### Problem
-
-Laravel'in Predis client'ı `KeyPrefixProcessor` kullanır. Bu processor her Redis komutuna otomatik prefix ekler.
-
-```
-Uygulama: KEYS prometheus:ikbackend:*
+| Limitasyon | Açıklama |
+|-----------|----------|
+| PHP-FPM altında gerçek process-RAM metrics yok | Bu nedenle varsayılan driver Redis |
+| Mongo persistence için ext-mongodb gerekir | Package bunu suggest eder, zorunlu kılmaz |
+| DB pool metricleri yaklaşık değerdir | PDO/MySQL tam pending queue metriği sunmaz |
+| Outgoing APM varsayılan yüzeyin parçası değildir | `capture_outgoing` ile opsiyonel açılabilir |
 Predis gönderir: KEYS laravel_database_prometheus:ikbackend:*
 Redis döndürür: ["laravel_database_prometheus:ikbackend:gauges:meta", ...]
 ```

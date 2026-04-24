@@ -20,6 +20,9 @@
         "promphp/prometheus_client_php": "^2.2",
         "predis/predis": "^2.0|^3.0"
     },
+    "suggest": {
+        "ext-mongodb": "Required to persist APM events into MongoDB. Without it, APM persistence is disabled gracefully."
+    },
     "require-dev": {
         "orchestra/testbench": "^7.0|^8.0|^9.0|^10.0",
         "phpunit/phpunit": "^9.0|^10.0|^11.0"

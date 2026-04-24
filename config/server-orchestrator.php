@@ -15,6 +15,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Metrics Storage Driver
+    |--------------------------------------------------------------------------
+    |
+    | Laravel/FPM altinda istekler process RAM'ini paylasmadigi icin varsayilan
+    | olarak Redis kullanilir. Uzun omurlu worker/runtime ortamlarinda .NET'teki
+    | process-RAM davranisini taklit etmek icin `in_memory` secilebilir.
+    |
+    | Desteklenen degerler:
+    | - redis
+    | - in_memory
+    |
+    */
+    'metrics_storage' => env('ORCHESTRATOR_METRICS_STORAGE', 'redis'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Proje Prefix'i (Redis Key İzolasyonu)
     |--------------------------------------------------------------------------
     |
@@ -23,7 +39,7 @@ return [
     |
     | Örnek: 'ikbackend', 'crm', 'hrportal'
     |
-    | Redis key formatı: prometheus:{prefix}:gauges:metric_name
+    | Redis storage kullanildiginda key formatı: prometheus:{prefix}:gauges:metric_name
     |
     */
     'prefix' => env('ORCHESTRATOR_PREFIX', env('APP_NAME', 'laravel')),
@@ -44,6 +60,8 @@ return [
     |--------------------------------------------------------------------------
     | Redis Key TTL (Saniye)
     |--------------------------------------------------------------------------
+    |
+    | Sadece `metrics_storage=redis` kullanildiginda gecerlidir.
     |
     | Metrik key'lerinin Redis'te ne kadar süre tutulacağı (saniye).
     | Varsayılan: 86400 (24 saat). Her yazma işleminde TTL yenilenir,
@@ -114,7 +132,7 @@ return [
     | DB::listen() ile otomatik olarak SQL sorgu metriklerini toplar.
     | - enabled: SQL metrik toplama aktif/pasif
     | - include_query_label: Normalize edilmiş SQL sorgusunu label olarak ekle
-    |   (rehber uyumu için varsayılan açıktır; public metrics'te dikkatli olun)
+    |   (standart kurulumda varsayılan kapalıdır)
     | - query_max_length: Query label'ı için maksimum karakter uzunluğu
     | - max_unique_queries: Aynı process içinde tutulacak maksimum query hash sayısı
     | - ignore_patterns: Bu regex pattern'lara uyan sorgular izlenmez
@@ -123,17 +141,14 @@ return [
     */
     'sql_metrics' => [
         'enabled' => env('ORCHESTRATOR_SQL_ENABLED', true),
-        'include_query_label' => env('ORCHESTRATOR_SQL_QUERY_LABEL', true),
+        'include_query_label' => env('ORCHESTRATOR_SQL_QUERY_LABEL', false),
         'query_max_length' => 200,
         'max_unique_queries' => env('ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES', 100),
         'ignore_patterns' => [
-            '/^SHOW\b/i',
-            '/^SET\b/i',
-            '/^DESCRIBE\b/i',
-            '/^EXPLAIN\b/i',
-            '/\bSAVEPOINT\b/i',
-            '/\bRELEASE SAVEPOINT\b/i',
-            '/\bmigrations\b/i',
+            '/HangFire\./i',
+            '/`HangFire`\./i',
+            '/HangFire`\./i',
+            '/information_schema/i',
         ],
         'histogram_buckets' => [
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25,
@@ -181,10 +196,14 @@ return [
     |--------------------------------------------------------------------------
     |
     | HTTP hata response'larını (request/response body dahil) yakalayıp
-    | Redis circular buffer'da saklar. Hem incoming (iç servis) hem outgoing
-    | (dış servis - Http:: client) hataları yakalanır.
+    | MongoDB'ye kalici olarak yazar. Yazim request sonrasina ertelenir ve
+    | kisa batch'ler halinde yapilir.
     |
-    | .NET'teki ApmErrorCaptureMiddleware'in Laravel karşılığı.
+    | Varsayilan davranis dokumandaki Mongo kalicilik modeline hizalidir:
+    | - response temelli 4xx/5xx capture
+    | - GET /__apm/errors ve /apm/errors
+    | - 7 gun TTL
+    | - limit parametresi (default 200, max 500)
     |
     | Endpoint: /__apm/errors veya /apm/errors
     |   - GET: Hata listesi (en yeniden eskiye, JSON array)
@@ -192,10 +211,15 @@ return [
     | Yakalanan status code'lar: 400, 401, 403, 404, 429, 500, 502, 503
     |
     | - enabled: APM hata yakalama aktif/pasif
-    | - max_buffer_size: Circular buffer boyutu (en eskiler otomatik silinir)
+    | - channel_capacity: Request sonrasina ertelenen event kuyruğu boyutu
+    | - batch_size: Mongo'ya tek seferde yazilacak event sayisi
     | - max_body_size: Request/response body max capture boyutu (byte)
     | - max_message_length: Kısa mesaj alanı max uzunluğu
-    | - ttl: Redis'te event'lerin saklanma süresi (saniye, null = sonsuz)
+    | - ttl: Mongo TTL index suresi (saniye)
+    | - default_limit: Endpoint varsayilan limit degeri
+    | - max_limit: Endpoint icin izin verilen en yuksek limit
+    | - bypass_threshold_bytes: Bu boyuttan buyuk request'ler capture edilmez
+    | - mongo: MongoDB baglanti ayarlari
     | - ip_protection: Production'da IP whitelist koruması aktif/pasif
     | - allowed_ips: Ek izinli IP'ler (localhost her zaman izinli)
     | - ignore_paths: Bu path'lerden gelen incoming istekler yakalanmaz
@@ -204,11 +228,20 @@ return [
     */
     'apm' => [
         'enabled' => env('ORCHESTRATOR_APM_ENABLED', true),
-        'max_buffer_size' => 200,
+        'channel_capacity' => env('ORCHESTRATOR_APM_CHANNEL_CAPACITY', 1000),
+        'batch_size' => env('ORCHESTRATOR_APM_BATCH_SIZE', 50),
         'max_body_size' => 32768, // 32KB
         'max_message_length' => 200,
-        'ttl' => 86400, // 24 saat
-        'ip_protection' => env('ORCHESTRATOR_APM_IP_PROTECTION', false),
+        'ttl' => env('ORCHESTRATOR_APM_TTL', 604800), // 7 gun
+        'default_limit' => env('ORCHESTRATOR_APM_DEFAULT_LIMIT', 200),
+        'max_limit' => env('ORCHESTRATOR_APM_MAX_LIMIT', 500),
+        'bypass_threshold_bytes' => env('ORCHESTRATOR_APM_BYPASS_THRESHOLD_BYTES', 5 * 1024 * 1024),
+        'mongo' => [
+            'connection_string' => env('Logging__MongoDB__ConnectionString', env('ORCHESTRATOR_APM_MONGO_CONNECTION_STRING', '')),
+            'database' => env('Logging__MongoDB__DatabaseName', env('ORCHESTRATOR_APM_MONGO_DATABASE', '')),
+            'collection' => 'ApmErrors',
+        ],
+        'ip_protection' => env('ORCHESTRATOR_APM_IP_PROTECTION', true),
         'allowed_ips' => array_filter([
             env('ApmSettings__AllowedIps__0'),
             env('ApmSettings__AllowedIps__1'),

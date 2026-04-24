@@ -4,10 +4,12 @@ namespace Fogeto\ServerOrchestrator\Providers;
 
 use Fogeto\ServerOrchestrator\Adapters\PredisAdapter;
 use Fogeto\ServerOrchestrator\Console\Commands\MigrateFromInlineCommand;
+use Fogeto\ServerOrchestrator\Contracts\IApmErrorStore;
 use Fogeto\ServerOrchestrator\Http\Middleware\ApmErrorCaptureMiddleware;
 use Fogeto\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
 use Fogeto\ServerOrchestrator\Listeners\HttpClientListener;
 use Fogeto\ServerOrchestrator\Services\ApmErrorBuffer;
+use Fogeto\ServerOrchestrator\Services\MongoApmErrorStore;
 use Fogeto\ServerOrchestrator\Services\SqlQueryMetricsRecorder;
 use Illuminate\Contracts\Debug\ExceptionHandler as ExceptionHandlerContract;
 use Illuminate\Contracts\Http\Kernel;
@@ -21,6 +23,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\ServiceProvider;
 use Prometheus\CollectorRegistry;
+use Prometheus\Storage\Adapter;
 use Prometheus\Storage\InMemory;
 
 class ServerOrchestratorServiceProvider extends ServiceProvider
@@ -36,32 +39,43 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
             return;
         }
 
-        // ApmErrorBuffer singleton — tüm bileşenler tarafında paylaşılır
-        $this->app->singleton(ApmErrorBuffer::class, function () {
-            return new ApmErrorBuffer();
+        $this->app->singleton(IApmErrorStore::class, function () {
+            return new MongoApmErrorStore();
+        });
+
+        $this->app->singleton(ApmErrorBuffer::class, function ($app) {
+            return new ApmErrorBuffer($app->make(IApmErrorStore::class));
         });
 
         $this->app->singleton(CollectorRegistry::class, function () {
-            try {
-                $connection = config('server-orchestrator.redis_connection', 'default');
-                $redisConnection = Redis::connection($connection);
-
-                $rawPrefix = config('server-orchestrator.prefix', 'laravel');
-                $sanitized = strtolower(preg_replace('/[^a-zA-Z0-9_-]/', '_', $rawPrefix));
-                $prefix = 'prometheus:' . $sanitized . ':';
-
-                $adapter = new PredisAdapter($redisConnection, $prefix, config('server-orchestrator.metrics_ttl', 604800));
-            } catch (\Throwable $e) {
-                report($e);
-                $adapter = new InMemory();
-            }
-
-            return new CollectorRegistry($adapter);
+            return new CollectorRegistry($this->makeMetricsAdapter());
         });
 
         $this->app->singleton(SqlQueryMetricsRecorder::class, function ($app) {
             return new SqlQueryMetricsRecorder($app->make(CollectorRegistry::class));
         });
+    }
+
+    private function makeMetricsAdapter(): Adapter
+    {
+        if (config('server-orchestrator.metrics_storage', 'redis') === 'in_memory') {
+            return new InMemory();
+        }
+
+        try {
+            $connection = config('server-orchestrator.redis_connection', 'default');
+            $redisConnection = Redis::connection($connection);
+
+            $rawPrefix = config('server-orchestrator.prefix', 'laravel');
+            $sanitized = strtolower(preg_replace('/[^a-zA-Z0-9_-]/', '_', $rawPrefix));
+            $prefix = 'prometheus:' . $sanitized . ':';
+
+            return new PredisAdapter($redisConnection, $prefix, config('server-orchestrator.metrics_ttl', 86400));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return new InMemory();
+        }
     }
 
     public function boot(): void
@@ -113,9 +127,7 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
     /**
      * SQL sorgu dinleyicisini kaydet.
      *
-     * Her SQL sorgusu anında Redis'e yazılır (PrometheusMiddleware ile aynı yaklaşım).
-     * Histogram nesnesi lazy olarak oluşturulur ve closure içinde cache'lenir.
-     * PredisAdapter pipeline optimizasyonu ile her observe ~1 round-trip.
+     * Her SQL sorgusu seçili metrics driver'ına anında yazılır.
      */
     private function registerSqlListener(): void
     {

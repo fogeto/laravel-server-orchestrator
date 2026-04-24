@@ -8,23 +8,12 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * HTTP hata response'larını yakalayıp Redis circular buffer'da tutan APM middleware.
+ * HTTP hata response'larını yakalayıp APM store'a bırakan middleware.
  *
- * .NET'teki ApmErrorCaptureMiddleware'in Laravel karşılığı.
- *
- * Yakalanan status code'lar: 400, 401, 403, 404, 429, 500, 502, 503
- *
- * Her hata event'i şunları içerir:
- *   - Request body (max 32KB)
- *   - Response body (max 32KB)
- *   - Request/Response headers (hassas olanlar redact edilir)
- *   - Duration (ms)
- *   - Client IP (X-Forwarded-For desteği)
- *   - User-Agent
- *   - Query string
- *
- * Buffer: Redis List (LPUSH + LTRIM), max 200 event (circular — en eskiler otomatik silinir)
- * Endpoint: /__apm/errors veya /apm/errors (ApmController üzerinden)
+ * Capture kuralları:
+ *   - Sadece belirli 4xx/5xx status code'ları
+ *   - 5MB üstü veya multipart upload isteklerinde bypass
+ *   - APM endpoint path'leri ignore edilir
  */
 class ApmErrorCaptureMiddleware
 {
@@ -37,8 +26,11 @@ class ApmErrorCaptureMiddleware
 
     public function handle(Request $request, Closure $next): Response
     {
-        // APM ignore path'leri kontrol et
         if ($this->shouldIgnore($request->path())) {
+            return $next($request);
+        }
+
+        if ($this->shouldBypass($request)) {
             return $next($request);
         }
 
@@ -131,6 +123,19 @@ class ApmErrorCaptureMiddleware
         }
 
         return $request->ip() ?? 'unknown';
+    }
+
+    private function shouldBypass(Request $request): bool
+    {
+        $threshold = (int) config('server-orchestrator.apm.bypass_threshold_bytes', 5 * 1024 * 1024);
+        $contentLength = $request->header('Content-Length');
+        if ($contentLength !== null && (int) $contentLength > $threshold) {
+            return true;
+        }
+
+        $contentType = $request->header('Content-Type', '');
+
+        return str_starts_with(strtolower($contentType), 'multipart/form-data');
     }
 
     /**

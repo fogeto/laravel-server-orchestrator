@@ -2,99 +2,56 @@
 
 [![Laravel 9.x-12.x](https://img.shields.io/badge/Laravel-9.x--12.x-red.svg)](https://laravel.com)
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0%2B-blue.svg)](https://php.net)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Laravel 9, 10, 11 ve 12 ile uyumlu, **çoklu proje destekli** Prometheus monitoring paketi.
+Laravel uygulamaları için standart bir metrics ve APM paketi.
 
-Aynı Redis sunucusunu paylaşan birden fazla Laravel projesini güvenle izlemenizi sağlar. Her projeye özel Redis key prefix'i ile verilerin karışması önlenir.
+Paket üç yüzey üretir:
 
----
+- `GET /metrics`
+- `GET /__apm/errors`
+- `GET /apm/errors`
 
-## İçindekiler
-
-- [Özellikler](#özellikler)
-- [Gereksinimler](#gereksinimler)
-- [Kurulum](#kurulum)
-  - [Yeni Proje (Sıfırdan Kurulum)](#yeni-proje-sıfırdan-kurulum)
-  - [Mevcut Proje (Eski Entegrasyondan Geçiş)](#mevcut-proje-eski-entegrasyondan-geçiş)
-- [Kullanım](#kullanım)
-  - [Metrikleri Görüntüleme](#metrikleri-görüntüleme)
-  - [Metrikleri Temizleme (Wipe)](#metrikleri-temizleme-wipe)
-- [Toplanan Metrikler](#toplanan-metrikler)
-  - [HTTP Metrikleri (Otomatik)](#http-metrikleri-otomatik)
-  - [Sistem Metrikleri](#sistem-metrikleri)
-- [Konfigürasyon](#konfigürasyon)
-  - [Tüm .env Değişkenleri](#tüm-env-değişkenleri)
-  - [Prefix (Redis Key İzolasyonu)](#prefix-redis-key-izolasyonu)
-  - [Middleware Ayarları](#middleware-ayarları)
-  - [Route Ayarları](#route-ayarları)
-  - [Histogram Bucket'ları](#histogram-bucketları)
-  - [Sistem Metrikleri Açma/Kapama](#sistem-metrikleri-açmakapama)
-- [Çoklu Proje Yapılandırması](#çoklu-proje-yapılandırması)
-- [Özel Metrik Ekleme](#özel-metrik-ekleme)
-- [Route Koruma (Güvenlik)](#route-koruma-güvenlik)
-- [Prometheus & Grafana Entegrasyonu](#prometheus--grafana-entegrasyonu)
-- [Sorun Giderme (SSS)](#sorun-giderme-sss)
-- [Lisans](#lisans)
-
----
+HTTP, SQL ve DB client metric aileleri Prometheus formatında sunulur. APM hata event'leri ise MongoDB'ye yazılır ve limitli JSON feed olarak okunur.
 
 ## Özellikler
 
 | Özellik | Açıklama |
-|---------|----------|
-| 🔑 **Redis Key İzolasyonu** | Her proje için benzersiz prefix (`prometheus:{prefix}:*`) |
-| 📊 **Otomatik HTTP Metrikleri** | Request duration histogram, toplam istek sayacı, hata sayacı |
-| 🖥️ **Sistem Metrikleri** | PHP info, memory, uptime, DB connections, OPcache, health |
-| 🔄 **Laravel 9-12 Desteği** | Tek paket, tüm sürümlerle uyumlu |
-| ⚡ **Sıfır Konfigürasyon** | Kurup çalıştırın, ihtiyaç olursa her şey özelleştirilebilir |
-| 🚫 **Wildcard Path Ignore** | Telescope, Horizon, metrics gibi yolları izlemekten hariç tutun |
-| 🧹 **Otomatik Migrasyon** | Eski inline entegrasyonu tek komutla temizleyin |
-
----
+|--------|----------|
+| HTTP metrics | `http_request_duration_seconds`, `http_requests_received_total`, `http_requests_in_progress` |
+| SQL metrics | `sql_query_duration_seconds`, `sql_query_errors_total` |
+| DB client metrics | `db_client_connections_max`, `db_client_connections_usage`, `db_client_connections_pending_requests` |
+| APM feed | 4xx/5xx response event'leri MongoDB `ApmErrors` collection'ında 7 gün tutulur |
+| Metrics driver seçimi | `redis` veya `in_memory` |
+| Laravel 9-12 desteği | Kernel ve Router akışlarıyla uyumlu |
+| Migration komutu | Eski inline entegrasyonları temizlemek için `orchestrator:migrate` |
 
 ## Gereksinimler
 
-| Paket | Versiyon |
-|-------|----------|
-| PHP | ^8.0 |
-| Laravel | ^9.0 \| ^10.0 \| ^11.0 \| ^12.0 |
-| predis/predis | ^2.0 \| ^3.0 |
-| promphp/prometheus_client_php | ^2.2 |
-| Redis sunucusu | Çalışır durumda olmalı |
+| Bileşen | Gereksinim |
+|--------|------------|
+| PHP | `^8.0` |
+| Laravel | `^9.0 | ^10.0 | ^11.0 | ^12.0` |
+| Prometheus client | `promphp/prometheus_client_php ^2.2` |
+| Redis | `metrics_storage=redis` için gerekli |
+| ext-mongodb | Mongo tabanlı APM persistence için gerekli |
 
-> **Not:** `predis/predis` ve `promphp/prometheus_client_php` otomatik olarak yüklenir. Ekstra bir şey kurmanız gerekmez.
+> `ext-mongodb` yüklü değilse package çalışmaya devam eder; sadece APM persistence devre dışı kalır ve `/apm/errors` boş array döner.
 
----
+## Storage modeli
+
+Referans .NET mimarisi metrics için process RAM kullanır. Laravel/FPM altında request'ler process belleğini paylaşmadığı için paket varsayılan olarak Redis-backed metrics driver ile gelir.
+
+| Veri tipi | Varsayılan storage | Not |
+|----------|--------------------|-----|
+| HTTP/SQL/DB metrics | Redis | FPM için güvenli varsayılan |
+| HTTP/SQL/DB metrics | InMemory | Uzun ömürlü runtime'larda seçilebilir |
+| APM event'leri | MongoDB | TTL 7 gün |
 
 ## Kurulum
 
-### Yeni Proje (Sıfırdan Kurulum)
+### 1. Repository tanımı
 
-Projenizde daha önce Prometheus entegrasyonu yoksa bu adımları takip edin.
-
-#### Adım 1 — Repository Tanımlayın
-
-Paket henüz Packagist'te yayınlanmadığı için projenizin `composer.json` dosyasına repository eklemeniz gerekiyor.
-
-**Yöntem A — Lokal Path (Geliştirme ortamı):**
-
-Paket reposu bilgisayarınızda mevcutsa:
-
-```json
-{
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../laravel-server-orchestrator"
-        }
-    ]
-}
-```
-
-> `url` değerini paket klasörünün **göreceli yoluna** göre düzenleyin.
-
-**Yöntem B — GitHub VCS (Sunucu / production ortamı):**
+Packagist yerine doğrudan repo kullanıyorsanız uygulamanın `composer.json` dosyasına ekleyin:
 
 ```json
 {
@@ -107,373 +64,174 @@ Paket reposu bilgisayarınızda mevcutsa:
 }
 ```
 
-> Private repo ise sunucuda GitHub token / SSH key yapılandırması gerekir.
+Lokal geliştirmede `path` repository de kullanılabilir.
 
-#### Adım 2 — Paketi Yükleyin
+### 2. Paketi yükleme
 
 ```bash
-# Path repository için:
-composer require fogeto/laravel-server-orchestrator:@dev
-
-# VCS repository için:
 composer require fogeto/laravel-server-orchestrator:dev-main
 ```
 
-> Laravel'in paket auto-discovery özelliği sayesinde ServiceProvider **otomatik** olarak kaydedilir. Ekstra bir kayıt yapmanıza gerek yoktur.
+Laravel auto-discovery sayesinde provider otomatik kayıt edilir.
 
-#### Adım 3 — `.env` Dosyasına Prefix Ekleyin
+### 3. Prefix ayarı
 
 ```env
-ORCHESTRATOR_PREFIX=projenizin_adi
+ORCHESTRATOR_PREFIX=myapp
 ```
 
-> ⚠️ **ZORUNLU:** Aynı Redis sunucusunu paylaşan projeler **farklı prefix** kullanmalıdır.
->
-> Örnekler: `ikbackend`, `hrportal`, `crm`, `ecommerce`
+Redis metrics driver kullanan her proje benzersiz prefix vermelidir.
 
-#### Adım 4 — Config Dosyasını Yayınlayın (Opsiyonel)
-
-Varsayılan ayarlar çoğu proje için yeterlidir. Özelleştirmek isterseniz:
+### 4. Config publish (opsiyonel)
 
 ```bash
 php artisan vendor:publish --tag=server-orchestrator-config
 ```
 
-Bu komut `config/server-orchestrator.php` dosyasını oluşturur.
-
-#### Adım 5 — Doğrulama
+### 5. Route doğrulama
 
 ```bash
-# Route'ların kayıt olduğunu kontrol edin
-php artisan route:list --path=metrics
+php artisan route:list | grep -E "metrics|apm"
 ```
 
-Şu çıktıyı görmelisiniz:
+Beklenen yüzey:
 
+```text
+GET|HEAD  metrics
+GET|HEAD  __apm/errors
+GET|HEAD  apm/errors
 ```
-GET|HEAD  metrics ............ Fogeto\ServerOrchestrator\Http\Controllers\MetricsController@index
-```
 
-**Bu kadar!** Artık `/metrics` adresinden metriklere erişebilirsiniz.
+## Mevcut projeden geçiş
 
----
-
-### Mevcut Proje (Eski Entegrasyondan Geçiş)
-
-Projenizde daha önce **inline** (elle yazılmış) Prometheus entegrasyonu varsa, `orchestrator:migrate` komutu eski dosyaları otomatik temizler.
-
-#### Adım 1 — Repository Tanımlayın ve Paketi Yükleyin
-
-Yukarıdaki [Yeni Proje — Adım 1](#adım-1--repository-tanımlayın) ve [Adım 2](#adım-2--paketi-yükleyin) bölümlerini uygulayın.
-
-#### Adım 2 — Neler Değişeceğini Görün (Dry Run)
+Eski inline Prometheus entegrasyonu olan projelerde:
 
 ```bash
-php artisan orchestrator:migrate --dry-run
-```
-
-Bu komut hiçbir değişiklik yapmaz, sadece **ne yapacağını** gösterir:
-
-```
-╔══════════════════════════════════════════════════════════════╗
-║       Server Orchestrator — Inline Migration Tool          ║
-╚══════════════════════════════════════════════════════════════╝
-
-⚡ DRY-RUN modu — hiçbir değişiklik yapılmayacak.
-
-🔍 Eski entegrasyon dosyaları taranıyor...
-
-Bulunan eski entegrasyon bileşenleri:
-+----------+------------------------------------------+-----------------------------+
-| Tür      | Konum                                    | Açıklama                    |
-+----------+------------------------------------------+-----------------------------+
-| Dosya    | app/Core/PredisAdapter.php               | Eski PredisAdapter          |
-| Dosya    | app/Http/Middleware/PrometheusMiddleware  | Eski PrometheusMiddleware   |
-| Dosya    | app/Providers/PrometheusServiceProvider   | Eski ServiceProvider        |
-| Referans | app/Http/Kernel.php                      | PrometheusMiddleware ref.   |
-| Referans | config/app.php                           | Eski provider kaydı         |
-| Referans | routes/api.php                           | Inline metrics route'ları   |
-| Eksik    | .env                                     | ORCHESTRATOR_PREFIX yok     |
-+----------+------------------------------------------+-----------------------------+
-```
-#### Adım 3 — Migrasyonu Çalıştırın
-
-```bash
-php artisan orchestrator:migrate --prefix=projenizin_adi
-```
-
-Komut otomatik olarak şunları yapar:
-
-| İşlem | Detay |
-|-------|-------|
-| 🗑️ Eski dosyaları siler | `PredisAdapter.php`, `PrometheusMiddleware.php`, `PrometheusServiceProvider.php` |
-| 🧹 Kernel.php temizler | Eski middleware referansını kaldırır |
-| 🧹 config/app.php temizler | Eski provider kaydını kaldırır |
-| 🧹 config/services.php temizler | Prometheus config bloğunu kaldırır |
-| 🧹 routes/api.php temizler | Inline metrics route tanımlarını kaldırır |
-| ➕ .env günceller | `ORCHESTRATOR_PREFIX=...` ekler |
-| 📄 Config publish eder | `config/server-orchestrator.php` oluşturur |
-
-#### Adım 4 — Temizlik Sonrası
-
-```bash
-composer dump-autoload
-php artisan config:clear
-php artisan route:list --path=metrics
-```
-
-#### Komut Seçenekleri
-
-| Seçenek | Açıklama | Örnek |
-|---------|----------|-------|
-| `--prefix=` | Prometheus prefix'i belirle | `--prefix=ikbackend` |
-| `--dry-run` | Değişiklik yapmadan ne yapacağını göster | `--dry-run` |
-| `--force` | Onay sormadan çalıştır (CI/CD için) | `--force` |
-
-```bash
-# Tam otomatik (CI/CD ortamı)
-php artisan orchestrator:migrate --prefix=myapp --force
-
-# Önce bak, sonra çalıştır
 php artisan orchestrator:migrate --dry-run
 php artisan orchestrator:migrate --prefix=myapp
+php artisan optimize:clear
 ```
 
----
+Migration komutu eski middleware/provider/route kalıntılarını temizlemeye yardım eder.
 
 ## Kullanım
 
-### Metrikleri Görüntüleme
+### Metrics
 
 ```bash
-# curl ile
 curl http://localhost:8000/metrics
-
-# PowerShell ile
-Invoke-RestMethod -Uri http://localhost:8000/metrics
-
-# Tarayıcıdan
-# http://localhost:8000/metrics
 ```
 
-### Toplanan Metrikler
+### APM event feed
 
-Paket varsayılan olarak rehberdeki yüzeyi üretir.
-
-#### HTTP Metrikleri
-
-| Metrik | Tip | Açıklama |
-|--------|-----|----------|
-| `http_request_duration_seconds` | Histogram | ASP.NET Core tarzı request latency histogramı |
-| `http_requests_received_total` | Counter | İşlenen HTTP istek sayısı |
-| `http_requests_in_progress` | Gauge | Pipeline içindeki anlık request sayısı |
-
-**HTTP label'ları:** `code`, `method`, `controller`, `action`, `endpoint`
-
-#### SQL Metrikleri
-
-| Metrik | Tip | Açıklama |
-|--------|-----|----------|
-| `sql_query_duration_seconds` | Histogram | SQL query execution duration |
-| `sql_query_errors_total` | Counter | SQL query error count |
-
-**SQL label sırası:**
-
-| Metrik | Label'lar |
-|--------|-----------|
-| `sql_query_duration_seconds` | `query_hash`, `operation`, `table`, `query` |
-| `sql_query_errors_total` | `query_hash`, `operation`, `table` |
-
-#### DB Client Metrikleri
-
-| Metrik | Tip | Açıklama |
-|--------|-----|----------|
-| `db_client_connections_max` | Gauge | Maximum pool connections |
-| `db_client_connections_usage` | Gauge | Database connections by state |
-| `db_client_connections_pending_requests` | Gauge | Pending connection requests |
-
-> Varsayılan yüzeyde artık `http_requests_total`, `http_errors_total`, `db_connections_active`, `db_connections_max`, `php_info`, `process_*`, `php_opcache_*` ve `app_health_status` üretilmez.
-
-#### Örnek HTTP Çıktısı
-
-```
-# HELP http_request_duration_seconds The duration of HTTP requests processed by an ASP.NET Core application.
-# TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.001"} 1
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.002"} 3
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="0.004"} 8
-http_request_duration_seconds_bucket{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users",le="+Inf"} 12
-http_request_duration_seconds_sum{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 0.018
-http_request_duration_seconds_count{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 12
-
-# HELP http_requests_in_progress The number of requests currently in progress in the ASP.NET Core pipeline. One series without controller/action label values counts all in-progress requests, with separate series existing for each controller-action pair.
-# TYPE http_requests_in_progress gauge
-http_requests_in_progress{method="GET",controller="UserController",action="index",endpoint="/api/users"} 1
-
-# HELP http_requests_received_total Provides the count of HTTP requests that have been processed by the ASP.NET Core pipeline.
-# TYPE http_requests_received_total counter
-http_requests_received_total{code="200",method="GET",controller="UserController",action="index",endpoint="/api/users"} 12
+```bash
+curl http://localhost:8000/apm/errors
+curl http://localhost:8000/__apm/errors?limit=50
 ```
 
-### SQL ve DB Notları
+APM feed varsayılan olarak sadece incoming event'leri listeler.
 
-- `query` label'ı rehber uyumu için varsayılan olarak açıktır.
-- Yeni query hash'leri process başına `100` benzersiz sorguyla sınırlandırılır.
-- `db_client_connections_pending_requests` metriği şu an `0` yayınlanır.
+### Test amaçlı hata üretme
 
----
+```bash
+curl -i http://localhost:8000/olmayan-endpoint
+curl http://localhost:8000/apm/errors
+```
+
+## Toplanan yüzey
+
+### HTTP metrics
+
+| Metrik | Tip | Label'lar |
+|--------|-----|-----------|
+| `http_request_duration_seconds` | Histogram | `code`, `method`, `controller`, `action`, `endpoint` |
+| `http_requests_received_total` | Counter | `code`, `method`, `controller`, `action`, `endpoint` |
+| `http_requests_in_progress` | Gauge | `method`, `controller`, `action`, `endpoint` |
+
+### SQL metrics
+
+| Metrik | Tip | Varsayılan label'lar |
+|--------|-----|----------------------|
+| `sql_query_duration_seconds` | Histogram | `query_hash`, `operation`, `table` |
+| `sql_query_errors_total` | Counter | `query_hash`, `operation`, `table` |
+
+> `ORCHESTRATOR_SQL_QUERY_LABEL=true` yapılırsa `sql_query_duration_seconds` metric'ine `query` label'ı eklenir.
+
+### DB client metrics
+
+| Metrik | Tip | Not |
+|--------|-----|-----|
+| `db_client_connections_max` | Gauge | MySQL `max_connections` üzerinden |
+| `db_client_connections_usage` | Gauge | `idle` ve `used` label'ları ile |
+| `db_client_connections_pending_requests` | Gauge | Laravel tarafında gözlemlenmediği için varsayılan `0` |
+
+### Varsayılan yüzeyde olmayanlar
+
+- `http_requests_total`
+- `http_errors_total`
+- `db_connections_active`
+- `db_connections_max`
+- `php_info`
+- `process_*`
+- `php_opcache_*`
+- `app_health_status`
 
 ## Konfigürasyon
 
-Config dosyasını publish ettikten sonra `config/server-orchestrator.php` üzerinden tüm ayarları özelleştirebilirsiniz.
-
-### Tüm .env Değişkenleri
+### Temel env değişkenleri
 
 | Değişken | Varsayılan | Açıklama |
 |----------|-----------|----------|
-| `ORCHESTRATOR_ENABLED` | `true` | Metrikleri tamamen açma/kapama |
-| `ORCHESTRATOR_PREFIX` | `APP_NAME` | Redis key prefix'i (projeye özel) |
-| `ORCHESTRATOR_REDIS_CONNECTION` | `default` | Kullanılacak Redis bağlantısı |
-| `ORCHESTRATOR_SQL_ENABLED` | `true` | SQL metriklerini açma/kapama |
-| `ORCHESTRATOR_SQL_QUERY_LABEL` | `true` | Normalize edilmiş SQL query label'ını açma/kapama |
-| `ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES` | `100` | Process başına tutulacak maksimum query hash sayısı |
+| `ORCHESTRATOR_ENABLED` | `true` | Paketi aç/kapat |
+| `ORCHESTRATOR_PREFIX` | `APP_NAME` | Redis prefix izolasyonu |
+| `ORCHESTRATOR_METRICS_STORAGE` | `redis` | `redis` veya `in_memory` |
+| `ORCHESTRATOR_REDIS_CONNECTION` | `default` | Redis bağlantısı |
+| `ORCHESTRATOR_METRICS_TTL` | `86400` | Sadece Redis metrics driver için |
+| `ORCHESTRATOR_SQL_ENABLED` | `true` | SQL metrics aç/kapat |
+| `ORCHESTRATOR_SQL_QUERY_LABEL` | `false` | SQL `query` label'ını aç/kapat |
+| `ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES` | `100` | Benzersiz query hash sınırı |
+| `ORCHESTRATOR_APM_ENABLED` | `true` | APM capture aç/kapat |
+| `ORCHESTRATOR_APM_IP_PROTECTION` | `true` | Production whitelist koruması |
+| `ORCHESTRATOR_APM_TTL` | `604800` | Mongo TTL, 7 gün |
+| `ORCHESTRATOR_APM_DEFAULT_LIMIT` | `200` | Endpoint varsayılan limit |
+| `ORCHESTRATOR_APM_MAX_LIMIT` | `500` | Endpoint üst limit |
+| `ORCHESTRATOR_APM_BYPASS_THRESHOLD_BYTES` | `5242880` | 5MB üstü capture bypass |
 
-> **Not:** Varsayılan route yüzeyi yalnızca `GET /metrics` endpoint'idir.
+### Mongo APM ayarları
 
-### Prefix (Redis Key İzolasyonu)
-
-Her projeye benzersiz bir prefix verin. Redis'teki key formatı:
-
-```
-{laravel_prefix}prometheus:{ORCHESTRATOR_PREFIX}:{type}:{metric_name}
-```
-
-Örnek (`ORCHESTRATOR_PREFIX=ikbackend`):
-
-```
-laravel_database_prometheus:ikbackend:gauges:db_client_connections_max
-laravel_database_prometheus:ikbackend:counters:http_requests_received_total
-laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
-```
-
-### Middleware Ayarları
-
-```php
-// config/server-orchestrator.php
-
-'middleware' => [
-    // Middleware'i tamamen devre dışı bırak (HTTP metrikleri toplanmaz)
-    'enabled' => true,
-
-    // Hangi middleware gruplarına eklenecek
-    // Laravel 9-10: app/Http/Kernel.php'deki grup adları
-    // Laravel 11-12: bootstrap/app.php'deki grup adları
-    'groups' => ['api'],
-
-    // Bu path'lerden gelen istekler izlenmez
-    // Wildcard (*) desteği vardır
-    'ignore_paths' => [
-        'metrics',
-        'telescope/*',      // Telescope istekleri
-        'horizon/*',        // Horizon istekleri
-        // 'api/health',    // Custom health check
-    ],
-],
-```
-
-### Route Ayarları
-
-```php
-'routes' => [
-    // Route'ları otomatik kayıt et (false = kendi route'larınızı tanımlayın)
-    'enabled' => true,
-
-    // Route'a uygulanacak middleware'ler (güvenlik için)
-    'middleware' => [],
-    // Örnekler:
-    // 'middleware' => ['auth:sanctum'],
-    // 'middleware' => ['throttle:10,1'],
-    // 'middleware' => [App\Http\Middleware\IpWhitelist::class],
-],
-```
-
-### Histogram Bucket'ları
-
-İstek sürelerini gruplamak için kullanılan eşik değerleri (saniye cinsinden):
-
-```php
-'histogram_buckets' => [
-    0.001, 0.002, 0.004, 0.008,
-    0.016, 0.032, 0.064, 0.128,
-    0.256, 0.512, 1.024, 2.048,
-    4.096, 8.192, 16.384, 32.768,
-],
-```
-
-> **Not:** Bu bucket seti ASP.NET Core referansındaki histogram çözünürlüğünü takip eder.
-
----
-
-## Çoklu Proje Yapılandırması
-
-### Senaryo: 3 Laravel Projesi, 1 Redis Sunucusu
+APM persistence için aşağıdaki env'ler kullanılır:
 
 ```env
-# Proje 1 — IK Backend (.env)
+Logging__MongoDB__ConnectionString=mongodb://user:pass@host:27017/observability?authSource=admin
+Logging__MongoDB__DatabaseName=observability
+```
+
+Collection adı sabit olarak `ApmErrors` kullanılır.
+
+### APM whitelist
+
+```env
+ApmSettings__AllowedIps__0=10.0.0.10
+ApmSettings__AllowedIps__1=192.168.1.25
+```
+
+Localhost IP'leri (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`) her zaman izinlidir.
+
+## Çoklu proje yapısı
+
+Redis metrics driver kullanan birden fazla proje için prefix'leri ayırın:
+
+```env
 ORCHESTRATOR_PREFIX=ikbackend
-
-# Proje 2 — HR Portal (.env)
 ORCHESTRATOR_PREFIX=hrportal
-
-# Proje 3 — CRM (.env)
 ORCHESTRATOR_PREFIX=crm
 ```
 
-Redis'teki key yapısı:
+Bu izolasyon sadece metrics driver için gereklidir; APM event'leri MongoDB collection'ında tutulur.
 
-```
-prometheus:ikbackend:gauges:db_client_connections_max
-prometheus:ikbackend:counters:http_requests_received_total
-prometheus:ikbackend:histograms:http_request_duration_seconds
+## Özel metric ekleme
 
-prometheus:hrportal:gauges:db_client_connections_max
-prometheus:hrportal:counters:http_requests_received_total
-
-prometheus:crm:gauges:db_client_connections_max
-prometheus:crm:counters:http_requests_received_total
-```
-
-### Prometheus Scrape Config (Tüm Projeler)
-
-```yaml
-# prometheus.yml
-scrape_configs:
-  - job_name: 'ikbackend'
-        metrics_path: '/metrics'
-    scrape_interval: 15s
-    static_configs:
-      - targets: ['ikbackend.example.com']
-
-  - job_name: 'hrportal'
-        metrics_path: '/metrics'
-    scrape_interval: 15s
-    static_configs:
-      - targets: ['hrportal.example.com']
-
-  - job_name: 'crm'
-        metrics_path: '/metrics'
-    scrape_interval: 15s
-    static_configs:
-      - targets: ['crm.example.com']
-```
-
----
-
-## Özel Metrik Ekleme
-
-Paket, `CollectorRegistry` singleton'ını IoC container'a kaydeder. Kendi metriklerinizi istediğiniz yerde ekleyebilirsiniz:
-
-### Counter (Sayaç)
+Package `CollectorRegistry` singleton'ını container'a kaydeder:
 
 ```php
 use Prometheus\CollectorRegistry;
@@ -481,42 +239,51 @@ use Prometheus\CollectorRegistry;
 $registry = app(CollectorRegistry::class);
 
 $counter = $registry->getOrRegisterCounter(
-    'app',                    // Namespace
-    'orders_total',           // Metrik adı
-    'Total orders placed',    // Açıklama
-    ['status']                // Label'lar
+        'app',
+        'orders_total',
+        'Total orders placed',
+        ['status']
 );
 
-$counter->inc(['completed']);     // +1
-$counter->incBy(5, ['pending']); // +5
+$counter->inc(['completed']);
 ```
 
-### Gauge (Anlık Değer)
+## Prometheus scrape örneği
 
-```php
-$gauge = $registry->getOrRegisterGauge(
-    'app', 'queue_size', 'Current queue size', ['queue']
-);
-
-$gauge->set(42, ['default']);     // Değeri ata
-$gauge->inc(['emails']);          // +1
-$gauge->decBy(3, ['exports']);    // -3
+```yaml
+scrape_configs:
+    - job_name: 'my-api'
+        metrics_path: '/metrics'
+        scrape_interval: 15s
+        static_configs:
+            - targets: ['my-api.example.com']
 ```
 
-### Histogram (Dağılım)
+## Sorun giderme
 
-```php
-$histogram = $registry->getOrRegisterHistogram(
-    'app',
-    'payment_duration_seconds',
-    'Payment processing time',
-    ['gateway'],                    // Label'lar
-    [0.1, 0.25, 0.5, 1, 2.5, 5]   // Bucket'lar
-);
+### `/apm/errors` boş dönüyor
 
-$histogram->observe(0.35, ['stripe']);
-$histogram->observe(1.2, ['paypal']);
-```
+- Mongo env'leri dolu mu?
+- `ext-mongodb` yüklü mü?
+- Gerçekten 4xx/5xx event oluştu mu?
+
+### `/apm/errors` 403 dönüyor
+
+- Production'da isen whitelist IP'lerini kontrol et.
+- Gerekirse `ApmSettings__AllowedIps__0` benzeri env'leri ekle.
+
+### `/metrics` sayaçları FPM altında sıfırlanıyor
+
+- `ORCHESTRATOR_METRICS_STORAGE=in_memory` kullanıyorsan FPM altında beklenen davranış budur.
+- FPM için `redis` driver kullan.
+
+### Publish edilen config eski kaldı
+
+`vendor:publish` mevcut dosyayı ezmez. `config/server-orchestrator.php` içindeki yeni anahtarları elle merge et veya kontrollü şekilde `--force` kullan.
+
+## Lisans
+
+MIT
 
 ### Job/Queue Metriği Örneği
 
