@@ -128,6 +128,10 @@ Anlık PHP bellek kullanımını byte cinsinden yayınlar.
 
 Peak PHP bellek kullanımını byte cinsinden yayınlar.
 
+### process_memory_limit_bytes
+
+PHP `memory_limit` değerini byte cinsinden yayınlar. Limit sınırsızsa `-1` döner.
+
 ### php_opcache_enabled
 
 OPcache aktifse `1`, değilse `0`.

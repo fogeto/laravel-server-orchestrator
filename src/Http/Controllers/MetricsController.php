@@ -131,6 +131,32 @@ class MetricsController extends Controller
             'Peak memory usage in bytes'
         );
         $memPeak->set(memory_get_peak_usage(true));
+
+        $memLimit = $this->registry->getOrRegisterGauge(
+            'process',
+            'memory_limit_bytes',
+            'Configured PHP memory limit in bytes'
+        );
+        $memLimit->set($this->parsePhpIniBytes((string) ini_get('memory_limit')));
+    }
+
+    private function parsePhpIniBytes(string $value): float
+    {
+        $value = trim($value);
+
+        if ($value === '' || $value === '-1') {
+            return -1;
+        }
+
+        $unit = strtolower(substr($value, -1));
+        $number = (float) $value;
+
+        return match ($unit) {
+            'g' => $number * 1024 * 1024 * 1024,
+            'm' => $number * 1024 * 1024,
+            'k' => $number * 1024,
+            default => $number,
+        };
     }
 
     /**
