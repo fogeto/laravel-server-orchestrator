@@ -120,7 +120,7 @@ Davranış:
 - Paket içinde IP whitelist uygulanmaz; erişim gerekiyorsa proxy/firewall/auth katmanında kısıtlanmalıdır.
 - Varsayılan listede sadece incoming event'ler görünür.
 - Event'ler MongoDB `ApmErrors` collection'ında tutulur.
-- TTL index süresi varsayılan `604800` saniyedir, yani 7 gün.
+- TTL index süresi varsayılan `86400` saniyedir, yani 1 gün.
 - `ext-mongodb` veya Mongo config yoksa persistence sessizce devre dışı kalır ve endpoint boş array döner.
 - `Content-Length > 5MB` veya `multipart/form-data` isteklerde body capture yapılmaz.
 

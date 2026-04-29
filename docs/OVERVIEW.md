@@ -10,7 +10,7 @@ Paket üç ana alanı kapsar:
 |------|-------|----------------|
 | HTTP metrikleri | `/metrics` | `redis` veya `in_memory` driver |
 | SQL metrikleri | `/metrics` | `redis` veya `in_memory` driver |
-| APM hata event'leri | `/__apm/errors`, `/apm/errors` | MongoDB, TTL 7 gün |
+| APM hata event'leri | `/__apm/errors`, `/apm/errors` | MongoDB, TTL 1 gün |
 
 ## Önemli mimari not
 

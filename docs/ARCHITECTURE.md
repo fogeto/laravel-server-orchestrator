@@ -30,7 +30,7 @@
 │            │                         │                          │
 │            ▼                         ▼                          │
 │         /metrics               MongoDB ApmErrors               │
-│                                                       TTL 7 gün│
+│                                                       TTL 1 gün│
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -57,7 +57,7 @@ Dosya: `src/Services/MongoApmErrorStore.php`
 | Mongo bağlantısı | `Logging__MongoDB__ConnectionString` ve `DatabaseName` ile bağlanır |
 | Queue benzeri buffer | Event'leri request sonunda flush edilmek üzere bellekte tutar |
 | Batch insert | Event'leri küçük partiler halinde Mongo'ya yazar |
-| TTL index | `timestamp` alanında 7 günlük TTL index oluşturur |
+| TTL index | `timestamp` alanında 1 günlük TTL index oluşturur |
 | Read API | `/apm/errors?limit=` için descending sorgu yapar |
 
 ### 3. ApmErrorBuffer
@@ -117,7 +117,7 @@ Varsayılan cardinality korumaları:
 | `metrics_storage` | `redis` | FPM güvenli varsayılan |
 | `metrics_ttl` | `86400` | Sadece redis driver için |
 | `sql_metrics.include_query_label` | `false` | İstenirse açılabilir |
-| `apm.ttl` | `604800` | Mongo TTL, 7 gün |
+| `apm.ttl` | `86400` | Mongo TTL, 1 gün |
 | `apm.default_limit` | `200` | `/apm/errors` varsayılan limiti |
 | `apm.max_limit` | `500` | Üst sınır |
 | `apm.bypass_threshold_bytes` | `5242880` | 5MB üstü body capture edilmez |

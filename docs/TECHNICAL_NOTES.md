@@ -36,7 +36,7 @@ APM event'leri MongoDB `ApmErrors` collection'ına yazılır.
 Kararlar:
 
 - `timestamp` alanı TTL index için BSON date olarak saklanır.
-- TTL süresi config'ten gelir, varsayılan 7 gündür.
+- TTL süresi config'ten gelir, varsayılan 1 gündür.
 - Event insert'i response sonrası `app()->terminating()` içinde flush edilir.
 - Tek request içinde en fazla `channel_capacity` kadar event queue'lanır.
 - Batch insert boyutu varsayılan `50`'dir.

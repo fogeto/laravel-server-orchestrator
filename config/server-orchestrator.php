@@ -202,7 +202,7 @@ return [
     | Varsayilan davranis dokumandaki Mongo kalicilik modeline hizalidir:
     | - response temelli 4xx/5xx capture
     | - GET /__apm/errors ve /apm/errors
-    | - 7 gun TTL
+    | - 1 gun TTL
     | - limit parametresi (default 200, max 500)
     |
     | Endpoint: /__apm/errors veya /apm/errors
@@ -230,7 +230,7 @@ return [
         'batch_size' => env('ORCHESTRATOR_APM_BATCH_SIZE', 50),
         'max_body_size' => 32768, // 32KB
         'max_message_length' => 200,
-        'ttl' => env('ORCHESTRATOR_APM_TTL', 604800), // 7 gun
+        'ttl' => env('ORCHESTRATOR_APM_TTL', 86400), // 1 gun
         'default_limit' => env('ORCHESTRATOR_APM_DEFAULT_LIMIT', 200),
         'max_limit' => env('ORCHESTRATOR_APM_MAX_LIMIT', 500),
         'bypass_threshold_bytes' => env('ORCHESTRATOR_APM_BYPASS_THRESHOLD_BYTES', 5 * 1024 * 1024),

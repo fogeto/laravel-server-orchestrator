@@ -20,7 +20,7 @@ HTTP, SQL ve DB client metric aileleri Prometheus formatında sunulur. APM hata 
 | HTTP metrics | `http_request_duration_seconds`, `http_requests_received_total`, `http_requests_in_progress` |
 | SQL metrics | `sql_query_duration_seconds`, `sql_query_errors_total` |
 | DB client metrics | `db_client_connections_max`, `db_client_connections_usage`, `db_client_connections_pending_requests` |
-| APM feed | 4xx/5xx response event'leri MongoDB `ApmErrors` collection'ında 7 gün tutulur |
+| APM feed | 4xx/5xx response event'leri MongoDB `ApmErrors` collection'ında 1 gün tutulur |
 | Metrics driver seçimi | `redis` veya `in_memory` |
 | Laravel 9-12 desteği | Kernel ve Router akışlarıyla uyumlu |
 | Migration komutu | Eski inline entegrasyonları temizlemek için `orchestrator:migrate` |
@@ -45,7 +45,7 @@ Referans .NET mimarisi metrics için process RAM kullanır. Laravel/FPM altında
 |----------|--------------------|-----|
 | HTTP/SQL/DB metrics | Redis | FPM için güvenli varsayılan |
 | HTTP/SQL/DB metrics | InMemory | Uzun ömürlü runtime'larda seçilebilir |
-| APM event'leri | MongoDB | TTL 7 gün |
+| APM event'leri | MongoDB | TTL 1 gün |
 
 ## Kurulum
 
@@ -191,7 +191,7 @@ curl http://localhost:8000/apm/errors
 | `ORCHESTRATOR_SQL_QUERY_LABEL` | `false` | SQL `query` label'ını aç/kapat |
 | `ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES` | `100` | Benzersiz query hash sınırı |
 | `ORCHESTRATOR_APM_ENABLED` | `true` | APM capture aç/kapat |
-| `ORCHESTRATOR_APM_TTL` | `604800` | Mongo TTL, 7 gün |
+| `ORCHESTRATOR_APM_TTL` | `86400` | Mongo TTL, 1 gün |
 | `ORCHESTRATOR_APM_DEFAULT_LIMIT` | `200` | Endpoint varsayılan limit |
 | `ORCHESTRATOR_APM_MAX_LIMIT` | `500` | Endpoint üst limit |
 | `ORCHESTRATOR_APM_BYPASS_THRESHOLD_BYTES` | `5242880` | 5MB üstü capture bypass |

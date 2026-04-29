@@ -13,7 +13,7 @@ Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uyg
 
 ### Changed
 - APM event'leri Redis circular buffer yerine MongoDB `ApmErrors` collection'ına yazılır hale getirildi
-- APM TTL varsayılanı 7 güne çekildi
+- APM TTL varsayılanı 1 güne çekildi ve mevcut Mongo TTL index süresi otomatik güncellenir hale getirildi
 - APM endpoint'lerindeki paket içi IP whitelist doğrulaması kaldırıldı
 - SQL `query` label'ı varsayılan olarak kapatıldı
 - SQL ignore pattern'ları HangFire ve `information_schema` filtreleri ile hizalandı

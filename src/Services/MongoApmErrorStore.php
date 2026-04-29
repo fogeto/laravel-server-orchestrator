@@ -164,13 +164,17 @@ class MongoApmErrorStore implements IApmErrorStore
         }
 
         try {
+            $ttl = $this->configuredTtl();
+
+            $this->syncTtlIndex($ttl);
+
             $command = $this->newCommand([
                 'createIndexes' => $this->collection,
                 'indexes' => [
                     [
                         'name' => 'ix_apm_ttl',
                         'key' => ['timestamp' => 1],
-                        'expireAfterSeconds' => max(1, (int) config('server-orchestrator.apm.ttl', 604800)),
+                        'expireAfterSeconds' => $ttl,
                     ],
                     [
                         'name' => 'ix_apm_timestamp_status',
@@ -183,6 +187,45 @@ class MongoApmErrorStore implements IApmErrorStore
             self::$indexesEnsured = true;
         } catch (\Throwable $e) {
             $this->reportOnce($e);
+        }
+    }
+
+    private function configuredTtl(): int
+    {
+        return max(1, (int) config('server-orchestrator.apm.ttl', 86400));
+    }
+
+    private function syncTtlIndex(int $ttl): void
+    {
+        if ($this->manager === null) {
+            return;
+        }
+
+        try {
+            $cursor = $this->manager->executeCommand($this->database, $this->newCommand([
+                'listIndexes' => $this->collection,
+            ]));
+
+            foreach ($cursor as $index) {
+                $indexData = (array) $index;
+                if (($indexData['name'] ?? '') !== 'ix_apm_ttl') {
+                    continue;
+                }
+
+                if ((int) ($indexData['expireAfterSeconds'] ?? 0) !== $ttl) {
+                    $this->manager->executeCommand($this->database, $this->newCommand([
+                        'collMod' => $this->collection,
+                        'index' => [
+                            'name' => 'ix_apm_ttl',
+                            'expireAfterSeconds' => $ttl,
+                        ],
+                    ]));
+                }
+
+                return;
+            }
+        } catch (\Throwable) {
+            // Collection veya index henuz yoksa createIndexes komutu normal akisla olusturur.
         }
     }
 
