@@ -122,11 +122,19 @@ Request process uptime değerini saniye cinsinden yayınlar.
 
 ### process_memory_usage_bytes
 
-Anlık PHP bellek kullanımını byte cinsinden yayınlar.
+Anlık gerçek PHP bellek kullanımını byte cinsinden yayınlar (`memory_get_usage(false)`).
+
+### process_memory_allocated_bytes
+
+PHP allocator tarafından ayrılmış anlık bellek alanını byte cinsinden yayınlar (`memory_get_usage(true)`).
 
 ### process_memory_peak_bytes
 
-Peak PHP bellek kullanımını byte cinsinden yayınlar.
+Peak gerçek PHP bellek kullanımını byte cinsinden yayınlar (`memory_get_peak_usage(false)`).
+
+### process_memory_peak_allocated_bytes
+
+PHP allocator tarafından ayrılmış peak bellek alanını byte cinsinden yayınlar (`memory_get_peak_usage(true)`).
 
 ### process_memory_limit_bytes
 

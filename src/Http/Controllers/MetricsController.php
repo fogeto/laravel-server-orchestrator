@@ -123,14 +123,28 @@ class MetricsController extends Controller
             'memory_usage_bytes',
             'Current memory usage in bytes'
         );
-        $memUsage->set(memory_get_usage(true));
+        $memUsage->set(memory_get_usage(false));
+
+        $memAllocated = $this->registry->getOrRegisterGauge(
+            'process',
+            'memory_allocated_bytes',
+            'Current PHP allocated memory in bytes'
+        );
+        $memAllocated->set(memory_get_usage(true));
 
         $memPeak = $this->registry->getOrRegisterGauge(
             'process',
             'memory_peak_bytes',
             'Peak memory usage in bytes'
         );
-        $memPeak->set(memory_get_peak_usage(true));
+        $memPeak->set(memory_get_peak_usage(false));
+
+        $memPeakAllocated = $this->registry->getOrRegisterGauge(
+            'process',
+            'memory_peak_allocated_bytes',
+            'Peak PHP allocated memory in bytes'
+        );
+        $memPeakAllocated->set(memory_get_peak_usage(true));
 
         $memLimit = $this->registry->getOrRegisterGauge(
             'process',

@@ -172,8 +172,10 @@ curl http://localhost:8000/apm/errors
 |--------|-----|-----|
 | `php_info` | Gauge | `version` label'ı ile PHP runtime bilgisi |
 | `process_uptime_seconds` | Gauge | Request process uptime |
-| `process_memory_usage_bytes` | Gauge | Anlık PHP bellek kullanımı |
-| `process_memory_peak_bytes` | Gauge | Peak PHP bellek kullanımı |
+| `process_memory_usage_bytes` | Gauge | Anlık gerçek PHP bellek kullanımı (`memory_get_usage(false)`) |
+| `process_memory_allocated_bytes` | Gauge | PHP allocator tarafından ayrılan anlık bellek (`memory_get_usage(true)`) |
+| `process_memory_peak_bytes` | Gauge | Peak gerçek PHP bellek kullanımı (`memory_get_peak_usage(false)`) |
+| `process_memory_peak_allocated_bytes` | Gauge | PHP allocator tarafından ayrılan peak bellek (`memory_get_peak_usage(true)`) |
 | `process_memory_limit_bytes` | Gauge | PHP `memory_limit` değeri |
 | `php_opcache_enabled` | Gauge | OPcache aktifse `1`, değilse `0` |
 | `php_opcache_hit_rate` | Gauge | OPcache hit rate yüzdesi |
