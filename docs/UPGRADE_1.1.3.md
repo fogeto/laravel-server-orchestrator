@@ -19,7 +19,7 @@ v1.1.3 ile gelen kritik noktalar:
 - Host proje paketi Composer ile kullaniyor olmali.
 - Uygulama sunucusunda `ext-mongodb` yuklu olmali.
 - Varsayilan metrics storage kullaniliyorsa Redis erisimi olmali.
-- Production ortaminda APM endpoint'i icin whitelist IP'leri planlanmis olmali.
+- Production ortaminda APM endpoint'i acik kalacagi icin gerekiyorsa reverse proxy, firewall veya auth katmani planlanmis olmali.
 
 ## Desteklenen Mongo Env'leri
 
@@ -87,13 +87,6 @@ Ornek:
 Logging__MongoDB__ConnectionString=mongodb://user:pass@172.168.30.99:27017/?authSource=admin
 Logging__MongoDB__DatabaseName=ecommerce
 ORCHESTRATOR_PREFIX=ecommerce_api
-```
-
-Production APM whitelist gerekiyorsa:
-
-```env
-ApmSettings__AllowedIps__0=10.0.0.10
-ApmSettings__AllowedIps__1=192.168.1.25
 ```
 
 Notlar:
@@ -210,17 +203,6 @@ Kontrol edin:
 - `ext-mongodb` yuklu mu
 - runtime restart yapildi mi
 - gercekten yakalanabilir bir `4xx/5xx` event olustu mu
-- production ortaminda whitelist IP engeli var mi
-
-### `/apm/errors` 403 donuyor
-
-Sebep:
-
-- Production whitelist engeli.
-
-Cozum:
-
-- `ApmSettings__AllowedIps__*` env degerlerini ekleyin veya guncelleyin.
 
 ### `/metrics` endpoint'i `array_combine()` hatasi veriyor
 

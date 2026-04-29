@@ -89,7 +89,7 @@ Davranış notları:
 
 - Event'ler MongoDB `ApmErrors` collection'ından okunur.
 - Varsayılan sıralama en yeniden eskiyedir.
-- Üretim ortamında whitelist dışı IP için yanıt `[]` gövdeli `403` olur.
+- Paket içinde IP doğrulaması yapılmaz; endpoint erişimi gerekiyorsa dış katmanda korunmalıdır.
 - Body ve message alanları limitte düz kesilir.
 
 ## DB metricleri yoksa

@@ -220,8 +220,6 @@ return [
     | - max_limit: Endpoint icin izin verilen en yuksek limit
     | - bypass_threshold_bytes: Bu boyuttan buyuk request'ler capture edilmez
     | - mongo: MongoDB baglanti ayarlari
-    | - ip_protection: Production'da IP whitelist koruması aktif/pasif
-    | - allowed_ips: Ek izinli IP'ler (localhost her zaman izinli)
     | - ignore_paths: Bu path'lerden gelen incoming istekler yakalanmaz
     | - capture_outgoing: Outgoing (Http:: client) hatalarını da yakala
     |
@@ -241,19 +239,6 @@ return [
             'database' => env('Logging__MongoDB__DatabaseName', env('ORCHESTRATOR_APM_MONGO_DATABASE', '')),
             'collection' => 'ApmErrors',
         ],
-        'ip_protection' => env('ORCHESTRATOR_APM_IP_PROTECTION', true),
-        'allowed_ips' => array_filter([
-            env('ApmSettings__AllowedIps__0'),
-            env('ApmSettings__AllowedIps__1'),
-            env('ApmSettings__AllowedIps__2'),
-            env('ApmSettings__AllowedIps__3'),
-            env('ApmSettings__AllowedIps__4'),
-            env('APM_ALLOWED_IP_0'),
-            env('APM_ALLOWED_IP_1'),
-            env('APM_ALLOWED_IP_2'),
-            env('APM_ALLOWED_IP_3'),
-            env('APM_ALLOWED_IP_4'),
-        ]),
         'ignore_paths' => [
             'metrics',
             '__apm/*',

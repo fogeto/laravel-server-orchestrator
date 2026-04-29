@@ -191,7 +191,6 @@ curl http://localhost:8000/apm/errors
 | `ORCHESTRATOR_SQL_QUERY_LABEL` | `false` | SQL `query` label'ını aç/kapat |
 | `ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES` | `100` | Benzersiz query hash sınırı |
 | `ORCHESTRATOR_APM_ENABLED` | `true` | APM capture aç/kapat |
-| `ORCHESTRATOR_APM_IP_PROTECTION` | `true` | Production whitelist koruması |
 | `ORCHESTRATOR_APM_TTL` | `604800` | Mongo TTL, 7 gün |
 | `ORCHESTRATOR_APM_DEFAULT_LIMIT` | `200` | Endpoint varsayılan limit |
 | `ORCHESTRATOR_APM_MAX_LIMIT` | `500` | Endpoint üst limit |
@@ -210,14 +209,7 @@ Collection adı sabit olarak `ApmErrors` kullanılır.
 
 Database adı proje bazlı seçilmelidir. Örnek: `ecommerce`, `crm`, `hrportal`.
 
-### APM whitelist
-
-```env
-ApmSettings__AllowedIps__0=10.0.0.10
-ApmSettings__AllowedIps__1=192.168.1.25
-```
-
-Localhost IP'leri (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`) her zaman izinlidir.
+APM endpoint'leri paket içinde IP doğrulaması yapmaz. Production'da erişimi gerekiyorsa reverse proxy, firewall veya uygulama dışı auth katmanı ile kısıtlayın.
 
 ## Çoklu proje yapısı
 
@@ -268,11 +260,6 @@ scrape_configs:
 - Mongo env'leri dolu mu?
 - `ext-mongodb` yüklü mü?
 - Gerçekten 4xx/5xx event oluştu mu?
-
-### `/apm/errors` 403 dönüyor
-
-- Production'da isen whitelist IP'lerini kontrol et.
-- Gerekirse `ApmSettings__AllowedIps__0` benzeri env'leri ekle.
 
 ### `/metrics` sayaçları FPM altında sıfırlanıyor
 

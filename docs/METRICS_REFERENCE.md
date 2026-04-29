@@ -117,8 +117,7 @@ Davranış:
 
 - JSON array döner.
 - `?limit=N` destekler. Varsayılan `200`, üst sınır `500`.
-- Production ortamında IP whitelist uygulanır.
-- Localhost IP'leri her zaman izinlidir.
+- Paket içinde IP whitelist uygulanmaz; erişim gerekiyorsa proxy/firewall/auth katmanında kısıtlanmalıdır.
 - Varsayılan listede sadece incoming event'ler görünür.
 - Event'ler MongoDB `ApmErrors` collection'ında tutulur.
 - TTL index süresi varsayılan `604800` saniyedir, yani 7 gün.
