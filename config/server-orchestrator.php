@@ -241,6 +241,7 @@ return [
         ],
         'ignore_paths' => [
             'metrics',
+            '_apm/*',
             '__apm/*',
             'apm/*',
             'telescope/*',

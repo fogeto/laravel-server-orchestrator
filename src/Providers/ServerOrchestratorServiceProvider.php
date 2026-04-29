@@ -218,7 +218,7 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
 
     /**
      * APM hata endpoint route'larını kaydet.
-     * /__apm/errors ve /apm/errors endpoint'leri
+     * /__apm/errors, /_apm/errors ve /apm/errors endpoint'leri
      */
     private function registerApmRoutes(): void
     {
@@ -226,6 +226,7 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
             $router = $this->app->make(\Illuminate\Routing\Router::class);
 
             $router->get('/__apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
+            $router->get('/_apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
             $router->get('/apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
         });
     }
