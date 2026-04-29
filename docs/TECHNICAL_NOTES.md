@@ -12,7 +12,7 @@ Desteklenen modlar:
 - `redis`: varsayılan, FPM için güvenli
 - `in_memory`: uzun ömürlü runtime kullanan projeler için
 
-Redis driver seçildiğinde `PredisAdapter` metric family'leri hash'lerde saklar ve `metrics_ttl` uygular.
+Redis driver seçildiğinde `PredisAdapter` metric family'leri hash'lerde saklar ve `metrics_ttl` uygular. Laravel Redis connection kullanıldığı için `predis` ve `phpredis` client'ları desteklenir.
 
 ## 2. Redis key yapısı
 
@@ -29,9 +29,11 @@ laravel_database_prometheus:ikbackend:counters:http_requests_received_total
 laravel_database_prometheus:ikbackend:histograms:http_request_duration_seconds
 ```
 
-## 3. Mongo APM persistence
+## 3. APM persistence
 
-APM event'leri MongoDB `ApmErrors` collection'ına yazılır.
+APM event'leri `ORCHESTRATOR_APM_STORE` ayarına göre MongoDB veya Redis'e yazılır.
+
+### Mongo store
 
 Kararlar:
 
@@ -42,6 +44,21 @@ Kararlar:
 - Batch insert boyutu varsayılan `50`'dir.
 
 Mongo config yoksa veya `ext-mongodb` yüklü değilse:
+
+- request akışı kırılmaz
+- capture sessizce devre dışı kalır
+- `/apm/errors` boş array döndürür
+
+### Redis store
+
+Redis store seçildiğinde event index'i sorted set içinde, payload'lar ise TTL'li string key'lerinde tutulur:
+
+```
+apm:{prefix}:events
+apm:{prefix}:event:{id}
+```
+
+Redis config yoksa veya bağlantı kurulamazsa:
 
 - request akışı kırılmaz
 - capture sessizce devre dışı kalır

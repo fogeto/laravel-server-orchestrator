@@ -56,12 +56,17 @@ LUA;
 
     /**
      * Redis connection prefix'ini al (ör. laravel_database_).
-     * Predis client'a set edilmiş prefix processor'dan okunur.
+     * Predis/phpredis client'a set edilmis prefix degerinden okunur.
      */
     private function getConnectionPrefix(): string
     {
         try {
             $client = $this->redis->client();
+
+            if (class_exists('Redis') && $client instanceof \Redis && defined('Redis::OPT_PREFIX')) {
+                return (string) $client->getOption(\Redis::OPT_PREFIX);
+            }
+
             $options = $client->getOptions();
 
             if (isset($options->prefix)) {
@@ -168,10 +173,8 @@ LUA;
      */
     public function collect(bool $sortMetrics = true): array
     {
-        $client = $this->redis->client();
-
         // Phase 1: Tüm meta key'lerini tek pipeline'da oku (1 round-trip)
-        $metaResults = $client->pipeline(function ($pipe) {
+        $metaResults = $this->redis->pipeline(function ($pipe) {
             $pipe->hgetall($this->prefix . 'gauges:meta');
             $pipe->hgetall($this->prefix . 'counters:meta');
             $pipe->hgetall($this->prefix . 'histograms:meta');
@@ -201,7 +204,7 @@ LUA;
         }
 
         // Phase 2: Tüm data key'lerini tek pipeline'da oku (1 round-trip)
-        $dataResults = $client->pipeline(function ($pipe) use ($dataOrder) {
+        $dataResults = $this->redis->pipeline(function ($pipe) use ($dataOrder) {
             foreach ($dataOrder as $item) {
                 $pipe->hgetall($item['key']);
             }
@@ -360,7 +363,7 @@ LUA;
      * TTL varsa %5 olasılıkla EXPIRE ekler (her istekte değil).
      *
      * Optimizasyon: 20+ ayrı round-trip → 1 round-trip.
-     * Predis client'ın native pipeline'ı kullanılır.
+     * Laravel Redis connection pipeline'i kullanilir (predis/phpredis uyumlu).
      */
     private function executePipeline(array $commands, string ...$ttlKeys): void
     {
@@ -369,9 +372,7 @@ LUA;
         // 7 günlük TTL'de bu yeterince güvenli.
         $shouldExpire = $this->ttl !== null && random_int(1, 20) === 1;
 
-        $client = $this->redis->client();
-
-        $responses = $client->pipeline(function ($pipe) use ($commands, $ttlKeys, $shouldExpire) {
+        $this->redis->pipeline(function ($pipe) use ($commands, $ttlKeys, $shouldExpire) {
             foreach ($commands as $cmd) {
                 $method = $cmd[0];
                 $args = array_slice($cmd, 1);

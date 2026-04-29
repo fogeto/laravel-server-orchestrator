@@ -43,12 +43,23 @@ Dosya: `src/Providers/ServerOrchestratorServiceProvider.php`
 | Sorumluluk | Açıklama |
 |------------|----------|
 | Config merge | Paket config'ini uygulamaya taşır |
-| APM binding | `IApmErrorStore` için Mongo store bind eder |
+| APM binding | `IApmErrorStore` için config'e göre Mongo veya Redis store bind eder |
 | Metrics binding | `CollectorRegistry` için storage driver seçer |
 | Middleware kayıt | Laravel 9-12 uyumlu grup ekleme yapar |
 | SQL hook | `DB::listen` ve `QueryException` raporlamasını bağlar |
 
-### 2. MongoApmErrorStore
+### 2. APM store'ları
+
+Dosyalar:
+
+- `src/Services/MongoApmErrorStore.php`
+- `src/Services/RedisApmErrorStore.php`
+- `src/Services/NullApmErrorStore.php`
+
+`ORCHESTRATOR_APM_STORE=mongo` ise MongoDB `ApmErrors` collection'ı kullanılır.
+`ORCHESTRATOR_APM_STORE=redis` ise Redis sorted set + TTL'li event key'leri kullanılır.
+
+### 2.1 MongoApmErrorStore
 
 Dosya: `src/Services/MongoApmErrorStore.php`
 
@@ -59,6 +70,17 @@ Dosya: `src/Services/MongoApmErrorStore.php`
 | Batch insert | Event'leri küçük partiler halinde Mongo'ya yazar |
 | TTL index | `timestamp` alanında 1 günlük TTL index oluşturur |
 | Read API | `/apm/errors?limit=` için descending sorgu yapar |
+
+### 2.2 RedisApmErrorStore
+
+Dosya: `src/Services/RedisApmErrorStore.php`
+
+| Sorumluluk | Açıklama |
+|------------|----------|
+| Redis bağlantısı | Laravel Redis connection üzerinden predis/phpredis ile çalışır |
+| Event index | `apm:{prefix}:events` sorted set içinde timestamp score ile sıralar |
+| Event payload | `apm:{prefix}:event:{id}` key'lerinde TTL ile saklar |
+| Read API | `/apm/errors?limit=` için zrevrange + mget yapar |
 
 ### 3. ApmErrorBuffer
 

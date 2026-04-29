@@ -10,7 +10,7 @@ Paket üç ana alanı kapsar:
 |------|-------|----------------|
 | HTTP metrikleri | `/metrics` | `redis` veya `in_memory` driver |
 | SQL metrikleri | `/metrics` | `redis` veya `in_memory` driver |
-| APM hata event'leri | `/__apm/errors`, `/apm/errors` | MongoDB, TTL 1 gün |
+| APM hata event'leri | `/__apm/errors`, `/apm/errors` | MongoDB veya Redis, TTL 1 gün |
 
 ## Önemli mimari not
 
@@ -27,7 +27,7 @@ Uzun ömürlü PHP runtime kullanan projelerde `ORCHESTRATOR_METRICS_STORAGE=in_
 | PHP | `^8.0` |
 | Laravel | `^9.0 | ^10.0 | ^11.0 | ^12.0` |
 | Varsayılan metrics driver | `redis` |
-| APM persistence | `ext-mongodb` varsa MongoDB |
+| APM persistence | `ORCHESTRATOR_APM_STORE=mongo|redis` |
 
 ## Dosya yapısı
 

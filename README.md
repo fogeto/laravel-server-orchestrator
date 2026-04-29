@@ -11,7 +11,7 @@ Paket üç yüzey üretir:
 - `GET /__apm/errors`
 - `GET /apm/errors`
 
-HTTP, SQL ve DB client metric aileleri Prometheus formatında sunulur. APM hata event'leri ise MongoDB'ye yazılır ve limitli JSON feed olarak okunur.
+HTTP, SQL ve DB client metric aileleri Prometheus formatında sunulur. APM hata event'leri ise seçilen storage'a (MongoDB veya Redis) yazılır ve limitli JSON feed olarak okunur.
 
 ## Özellikler
 
@@ -20,7 +20,7 @@ HTTP, SQL ve DB client metric aileleri Prometheus formatında sunulur. APM hata 
 | HTTP metrics | `http_request_duration_seconds`, `http_requests_received_total`, `http_requests_in_progress` |
 | SQL metrics | `sql_query_duration_seconds`, `sql_query_errors_total` |
 | DB client metrics | `db_client_connections_max`, `db_client_connections_usage`, `db_client_connections_pending_requests` |
-| APM feed | 4xx/5xx response event'leri MongoDB `ApmErrors` collection'ında 1 gün tutulur |
+| APM feed | 4xx/5xx response event'leri seçilen storage'da 1 gün tutulur |
 | Metrics driver seçimi | `redis` veya `in_memory` |
 | Laravel 9-12 desteği | Kernel ve Router akışlarıyla uyumlu |
 | Migration komutu | Eski inline entegrasyonları temizlemek için `orchestrator:migrate` |
@@ -34,8 +34,9 @@ HTTP, SQL ve DB client metric aileleri Prometheus formatında sunulur. APM hata 
 | Prometheus client | `promphp/prometheus_client_php ^2.2` |
 | Redis | `metrics_storage=redis` için gerekli |
 | ext-mongodb | Mongo tabanlı APM persistence için gerekli |
+| ext-redis | `ORCHESTRATOR_REDIS_CLIENT=phpredis` için gerekli |
 
-> `ext-mongodb` yüklü değilse package çalışmaya devam eder; sadece APM persistence devre dışı kalır ve `/apm/errors` boş array döner.
+> Seçilen APM store için gerekli extension/config yoksa package çalışmaya devam eder; sadece APM persistence devre dışı kalır ve `/apm/errors` boş array döner.
 
 ## Storage modeli
 
@@ -45,7 +46,7 @@ Referans .NET mimarisi metrics için process RAM kullanır. Laravel/FPM altında
 |----------|--------------------|-----|
 | HTTP/SQL/DB metrics | Redis | FPM için güvenli varsayılan |
 | HTTP/SQL/DB metrics | InMemory | Uzun ömürlü runtime'larda seçilebilir |
-| APM event'leri | MongoDB | TTL 1 gün |
+| APM event'leri | MongoDB veya Redis | TTL 1 gün |
 
 ## Kurulum
 
@@ -195,21 +196,28 @@ curl http://localhost:8000/apm/errors
 | `ORCHESTRATOR_PREFIX` | `APP_NAME` | Redis prefix izolasyonu |
 | `ORCHESTRATOR_METRICS_STORAGE` | `redis` | `redis` veya `in_memory` |
 | `ORCHESTRATOR_REDIS_CONNECTION` | `default` | Redis bağlantısı |
+| `ORCHESTRATOR_REDIS_CLIENT` | Laravel default | Opsiyonel `predis` veya `phpredis` override |
 | `ORCHESTRATOR_METRICS_TTL` | `86400` | Sadece Redis metrics driver için |
 | `ORCHESTRATOR_SQL_ENABLED` | `true` | SQL metrics aç/kapat |
 | `ORCHESTRATOR_SQL_QUERY_LABEL` | `false` | SQL `query` label'ını aç/kapat |
 | `ORCHESTRATOR_SQL_MAX_UNIQUE_QUERIES` | `100` | Benzersiz query hash sınırı |
 | `ORCHESTRATOR_APM_ENABLED` | `true` | APM capture aç/kapat |
-| `ORCHESTRATOR_APM_TTL` | `86400` | Mongo TTL, 1 gün |
+| `ORCHESTRATOR_APM_STORE` | `mongo` | APM storage: `mongo` veya `redis` |
+| `ORCHESTRATOR_APM_SERVICE` | `ORCHESTRATOR_PREFIX` | APM event service/proje kimliği |
+| `ORCHESTRATOR_APM_SCOPE_BY_SERVICE` | `true` | Mongo okuma/temizlemeyi service ile sınırla |
+| `ORCHESTRATOR_APM_TTL` | `86400` | APM TTL, 1 gün |
 | `ORCHESTRATOR_APM_DEFAULT_LIMIT` | `200` | Endpoint varsayılan limit |
 | `ORCHESTRATOR_APM_MAX_LIMIT` | `500` | Endpoint üst limit |
 | `ORCHESTRATOR_APM_BYPASS_THRESHOLD_BYTES` | `5242880` | 5MB üstü capture bypass |
+| `ORCHESTRATOR_APM_REDIS_CONNECTION` | `ORCHESTRATOR_REDIS_CONNECTION` | Redis APM bağlantısı |
+| `ORCHESTRATOR_APM_REDIS_PREFIX` | `ORCHESTRATOR_PREFIX` | Redis APM key prefix |
 
 ### Mongo APM ayarları
 
-APM persistence için aşağıdaki env'ler kullanılır:
+Mongo APM persistence için `ORCHESTRATOR_APM_STORE=mongo` kullanılır:
 
 ```env
+ORCHESTRATOR_APM_STORE=mongo
 Logging__MongoDB__ConnectionString=mongodb://user:pass@host:27017/?authSource=admin
 Logging__MongoDB__DatabaseName=ecommerce
 ```
@@ -218,11 +226,25 @@ Collection adı sabit olarak `ApmErrors` kullanılır.
 
 Database adı proje bazlı seçilmelidir. Örnek: `ecommerce`, `crm`, `hrportal`.
 
+### Redis APM ayarları
+
+Mongo kullanmak istemeyen kurulumlarda APM event'leri Redis sorted set + TTL'li event key'lerinde tutulabilir:
+
+```env
+ORCHESTRATOR_APM_STORE=redis
+ORCHESTRATOR_REDIS_CONNECTION=default
+ORCHESTRATOR_REDIS_CLIENT=predis
+# ORCHESTRATOR_REDIS_CLIENT=phpredis
+ORCHESTRATOR_APM_TTL=86400
+```
+
+Redis APM storage, event'leri `ORCHESTRATOR_PREFIX` veya `ORCHESTRATOR_APM_REDIS_PREFIX` ile izole eder.
+
 APM endpoint'leri paket içinde IP doğrulaması yapmaz. Production'da erişimi gerekiyorsa reverse proxy, firewall veya uygulama dışı auth katmanı ile kısıtlayın.
 
 ## Çoklu proje yapısı
 
-Redis metrics driver kullanan birden fazla proje için prefix'leri ayırın:
+Redis metrics veya Redis APM driver kullanan birden fazla proje için prefix'leri ayırın:
 
 ```env
 ORCHESTRATOR_PREFIX=ikbackend
@@ -230,7 +252,7 @@ ORCHESTRATOR_PREFIX=hrportal
 ORCHESTRATOR_PREFIX=crm
 ```
 
-Bu izolasyon sadece metrics driver için gereklidir; APM event'leri MongoDB collection'ında tutulur.
+Mongo APM kullanılıyorsa event'lere `service` alanı yazılır ve varsayılan olarak `/apm/errors` sadece kendi service kayıtlarını döndürür.
 
 ## Özel metric ekleme
 
@@ -266,8 +288,9 @@ scrape_configs:
 
 ### `/apm/errors` boş dönüyor
 
-- Mongo env'leri dolu mu?
-- `ext-mongodb` yüklü mü?
+- `ORCHESTRATOR_APM_STORE` doğru mu (`mongo` veya `redis`)?
+- Mongo seçildiyse Mongo env'leri dolu ve `ext-mongodb` yüklü mü?
+- Redis seçildiyse Redis connection çalışıyor mu, `phpredis` seçildiyse `ext-redis` yüklü mü?
 - Gerçekten 4xx/5xx event oluştu mu?
 
 ### `/metrics` sayaçları FPM altında sıfırlanıyor

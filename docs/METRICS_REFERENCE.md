@@ -153,9 +153,11 @@ Davranış:
 - `?limit=N` destekler. Varsayılan `200`, üst sınır `500`.
 - Paket içinde IP whitelist uygulanmaz; erişim gerekiyorsa proxy/firewall/auth katmanında kısıtlanmalıdır.
 - Varsayılan listede sadece incoming event'ler görünür.
-- Event'ler MongoDB `ApmErrors` collection'ında tutulur.
-- TTL index süresi varsayılan `86400` saniyedir, yani 1 gün.
-- `ext-mongodb` veya Mongo config yoksa persistence sessizce devre dışı kalır ve endpoint boş array döner.
+- `ORCHESTRATOR_APM_STORE=mongo` ise event'ler MongoDB `ApmErrors` collection'ında tutulur.
+- `ORCHESTRATOR_APM_STORE=redis` ise event'ler Redis sorted set + TTL'li event key'lerinde tutulur.
+- TTL süresi varsayılan `86400` saniyedir, yani 1 gün.
+- Event'lere `service` alanı yazılır; Mongo store varsayılan olarak sadece kendi service kayıtlarını okur.
+- Seçilen store için gerekli extension/config yoksa persistence sessizce devre dışı kalır ve endpoint boş array döner.
 - `Content-Length > 5MB` veya `multipart/form-data` isteklerde body capture yapılmaz.
 
 ## Storage notu

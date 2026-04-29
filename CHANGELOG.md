@@ -6,13 +6,17 @@ Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uyg
 ## [Unreleased]
 
 ### Added
+- APM persistence store secimi eklendi: `ORCHESTRATOR_APM_STORE=mongo|redis`
+- Redis APM persistence store eklendi (`RedisApmErrorStore`)
+- Redis client override eklendi: `ORCHESTRATOR_REDIS_CLIENT=predis|phpredis`
+- APM event'lerine `service` alani eklendi ve Mongo okumalarinda service scope destegi eklendi
 - Mongo tabanlı APM persistence store eklendi (`MongoApmErrorStore`)
 - APM endpoint'ine `?limit=` desteği eklendi; varsayılan `200`, üst sınır `500`
 - `metrics_storage` config anahtarı ile `redis` ve `in_memory` driver seçimi eklendi
 - `ext-mongodb` önerisi composer metadata'ya eklendi
 
 ### Changed
-- APM event'leri Redis circular buffer yerine MongoDB `ApmErrors` collection'ına yazılır hale getirildi
+- APM event'leri varsayilan olarak MongoDB `ApmErrors` collection'ina, istenirse Redis'e yazilir hale getirildi
 - APM TTL varsayılanı 1 güne çekildi ve mevcut Mongo TTL index süresi otomatik güncellenir hale getirildi
 - APM endpoint'lerindeki paket içi IP whitelist doğrulaması kaldırıldı
 - SQL `query` label'ı varsayılan olarak kapatıldı

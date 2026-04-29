@@ -10,6 +10,8 @@ use Fogeto\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
 use Fogeto\ServerOrchestrator\Listeners\HttpClientListener;
 use Fogeto\ServerOrchestrator\Services\ApmErrorBuffer;
 use Fogeto\ServerOrchestrator\Services\MongoApmErrorStore;
+use Fogeto\ServerOrchestrator\Services\NullApmErrorStore;
+use Fogeto\ServerOrchestrator\Services\RedisApmErrorStore;
 use Fogeto\ServerOrchestrator\Services\SqlQueryMetricsRecorder;
 use Illuminate\Contracts\Debug\ExceptionHandler as ExceptionHandlerContract;
 use Illuminate\Contracts\Http\Kernel;
@@ -21,6 +23,7 @@ use Illuminate\Http\Client\Events\ResponseReceived;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Redis\Connections\Connection as RedisConnection;
 use Illuminate\Support\ServiceProvider;
 use Prometheus\CollectorRegistry;
 use Prometheus\Storage\Adapter;
@@ -30,7 +33,7 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(
+        $this->mergeConfigFromRecursive(
             __DIR__ . '/../../config/server-orchestrator.php',
             'server-orchestrator'
         );
@@ -39,8 +42,10 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
             return;
         }
 
+        $this->configureRedisClient();
+
         $this->app->singleton(IApmErrorStore::class, function () {
-            return new MongoApmErrorStore();
+            return $this->makeApmErrorStore();
         });
 
         $this->app->singleton(ApmErrorBuffer::class, function ($app) {
@@ -63,8 +68,7 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         }
 
         try {
-            $connection = config('server-orchestrator.redis_connection', 'default');
-            $redisConnection = Redis::connection($connection);
+            $redisConnection = $this->makeRedisConnection(config('server-orchestrator.redis_connection', 'default'));
 
             $rawPrefix = config('server-orchestrator.prefix', 'laravel');
             $sanitized = strtolower(preg_replace('/[^a-zA-Z0-9_-]/', '_', $rawPrefix));
@@ -76,6 +80,87 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
 
             return new InMemory();
         }
+    }
+
+    private function mergeConfigFromRecursive(string $path, string $key): void
+    {
+        $packageConfig = require $path;
+        $appConfig = $this->app['config']->get($key, []);
+
+        if (! is_array($appConfig)) {
+            $appConfig = [];
+        }
+
+        $this->app['config']->set($key, $this->mergeConfigArrays($packageConfig, $appConfig));
+    }
+
+    private function mergeConfigArrays(array $packageConfig, array $appConfig): array
+    {
+        foreach ($appConfig as $key => $value) {
+            if (
+                is_array($value)
+                && isset($packageConfig[$key])
+                && is_array($packageConfig[$key])
+                && ! $this->isListArray($value)
+                && ! $this->isListArray($packageConfig[$key])
+            ) {
+                $packageConfig[$key] = $this->mergeConfigArrays($packageConfig[$key], $value);
+                continue;
+            }
+
+            $packageConfig[$key] = $value;
+        }
+
+        return $packageConfig;
+    }
+
+    private function isListArray(array $array): bool
+    {
+        if ($array === []) {
+            return true;
+        }
+
+        return array_keys($array) === range(0, count($array) - 1);
+    }
+
+    private function makeApmErrorStore(): IApmErrorStore
+    {
+        $store = strtolower((string) config('server-orchestrator.apm.store', 'mongo'));
+
+        if ($store === 'redis') {
+            try {
+                $connection = config(
+                    'server-orchestrator.apm.redis.connection',
+                    config('server-orchestrator.redis_connection', 'default')
+                );
+
+                return new RedisApmErrorStore($this->makeRedisConnection($connection));
+            } catch (\Throwable $e) {
+                report($e);
+
+                return new NullApmErrorStore();
+            }
+        }
+
+        return new MongoApmErrorStore();
+    }
+
+    private function makeRedisConnection(?string $connection = null): RedisConnection
+    {
+        $this->configureRedisClient();
+
+        return Redis::connection($connection ?: 'default');
+    }
+
+    private function configureRedisClient(): void
+    {
+        $client = strtolower((string) config('server-orchestrator.redis_client', ''));
+
+        if (! in_array($client, ['predis', 'phpredis'], true)) {
+            return;
+        }
+
+        config(['database.redis.client' => $client]);
     }
 
     public function boot(): void

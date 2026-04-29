@@ -58,6 +58,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Redis Client Override
+    |--------------------------------------------------------------------------
+    |
+    | Bos birakilirsa Laravel'in mevcut REDIS_CLIENT/database.redis.client
+    | ayari kullanilir. Deger verirseniz paket Redis baglantisi kurulmadan once
+    | Laravel Redis client'ini predis veya phpredis olarak ayarlar.
+    |
+    | Desteklenen degerler: predis, phpredis
+    |
+    */
+    'redis_client' => env('ORCHESTRATOR_REDIS_CLIENT'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Redis Key TTL (Saniye)
     |--------------------------------------------------------------------------
     |
@@ -196,10 +210,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | HTTP hata response'larını (request/response body dahil) yakalayıp
-    | MongoDB'ye kalici olarak yazar. Yazim request sonrasina ertelenir ve
-    | kisa batch'ler halinde yapilir.
+    | secilen APM store'a kalici olarak yazar.
     |
-    | Varsayilan davranis dokumandaki Mongo kalicilik modeline hizalidir:
+    | Varsayilan davranis dokumandaki kalicilik modeline hizalidir:
     | - response temelli 4xx/5xx capture
     | - GET /__apm/errors ve /apm/errors
     | - 1 gun TTL
@@ -211,21 +224,28 @@ return [
     | Yakalanan status code'lar: 400, 401, 403, 404, 429, 500, 502, 503
     |
     | - enabled: APM hata yakalama aktif/pasif
+    | - store: APM event storage driver'i (mongo veya redis)
+    | - service: Event'lere yazilacak servis/proje kimligi
+    | - scope_by_service: Okuma/temizleme islemlerini sadece bu servise daralt
     | - channel_capacity: Request sonrasina ertelenen event kuyruğu boyutu
     | - batch_size: Mongo'ya tek seferde yazilacak event sayisi
     | - max_body_size: Request/response body max capture boyutu (byte)
     | - max_message_length: Kısa mesaj alanı max uzunluğu
-    | - ttl: Mongo TTL index suresi (saniye)
+    | - ttl: Mongo TTL index / Redis event TTL suresi (saniye)
     | - default_limit: Endpoint varsayilan limit degeri
     | - max_limit: Endpoint icin izin verilen en yuksek limit
     | - bypass_threshold_bytes: Bu boyuttan buyuk request'ler capture edilmez
     | - mongo: MongoDB baglanti ayarlari
+    | - redis: Redis baglanti/prefix ayarlari
     | - ignore_paths: Bu path'lerden gelen incoming istekler yakalanmaz
     | - capture_outgoing: Outgoing (Http:: client) hatalarını da yakala
     |
     */
     'apm' => [
         'enabled' => env('ORCHESTRATOR_APM_ENABLED', true),
+        'store' => env('ORCHESTRATOR_APM_STORE', 'mongo'), // mongo | redis
+        'service' => env('ORCHESTRATOR_APM_SERVICE', env('ORCHESTRATOR_PREFIX', env('APP_NAME', 'laravel'))),
+        'scope_by_service' => env('ORCHESTRATOR_APM_SCOPE_BY_SERVICE', true),
         'channel_capacity' => env('ORCHESTRATOR_APM_CHANNEL_CAPACITY', 1000),
         'batch_size' => env('ORCHESTRATOR_APM_BATCH_SIZE', 50),
         'max_body_size' => 32768, // 32KB
@@ -238,6 +258,10 @@ return [
             'connection_string' => env('Logging__MongoDB__ConnectionString', env('ORCHESTRATOR_APM_MONGO_CONNECTION_STRING', '')),
             'database' => env('Logging__MongoDB__DatabaseName', env('ORCHESTRATOR_APM_MONGO_DATABASE', '')),
             'collection' => 'ApmErrors',
+        ],
+        'redis' => [
+            'connection' => env('ORCHESTRATOR_APM_REDIS_CONNECTION', env('ORCHESTRATOR_REDIS_CONNECTION', 'default')),
+            'prefix' => env('ORCHESTRATOR_APM_REDIS_PREFIX'),
         ],
         'ignore_paths' => [
             'metrics',

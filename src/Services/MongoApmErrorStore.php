@@ -18,6 +18,10 @@ class MongoApmErrorStore implements IApmErrorStore
 
     private string $collection = 'ApmErrors';
 
+    private string $service = 'laravel';
+
+    private bool $scopeByService = true;
+
     private bool $enabled = false;
 
     private bool $flushRegistered = false;
@@ -43,6 +47,8 @@ class MongoApmErrorStore implements IApmErrorStore
         $this->maxLimit = max(1, (int) ($config['max_limit'] ?? 500));
         $this->database = trim((string) ($mongo['database'] ?? ''));
         $this->collection = trim((string) ($mongo['collection'] ?? 'ApmErrors')) ?: 'ApmErrors';
+        $this->service = (string) ($config['service'] ?? config('server-orchestrator.prefix', config('app.name', 'laravel')));
+        $this->scopeByService = (bool) ($config['scope_by_service'] ?? true);
 
         $connectionString = trim((string) ($mongo['connection_string'] ?? ''));
         if ($connectionString === '' || $this->database === '' || ! class_exists('MongoDB\\Driver\\Manager')) {
@@ -83,7 +89,7 @@ class MongoApmErrorStore implements IApmErrorStore
         }
 
         try {
-            $query = $this->newQuery([], [
+            $query = $this->newQuery($this->queryFilter(), [
                 'sort' => ['timestamp' => -1],
                 'limit' => min(max(1, $limit), $this->maxLimit),
             ]);
@@ -115,7 +121,7 @@ class MongoApmErrorStore implements IApmErrorStore
 
         try {
             $bulk = $this->newBulkWrite();
-            $bulk->delete([], ['limit' => 0]);
+            $bulk->delete($this->queryFilter(), ['limit' => 0]);
             $this->manager->executeBulkWrite($this->namespace(), $bulk);
         } catch (\Throwable $e) {
             $this->reportOnce($e);
@@ -180,6 +186,10 @@ class MongoApmErrorStore implements IApmErrorStore
                         'name' => 'ix_apm_timestamp_status',
                         'key' => ['timestamp' => -1, 'statusCode' => 1],
                     ],
+                    [
+                        'name' => 'ix_apm_service_timestamp_status',
+                        'key' => ['service' => 1, 'timestamp' => -1, 'statusCode' => 1],
+                    ],
                 ],
             ]);
 
@@ -236,9 +246,18 @@ class MongoApmErrorStore implements IApmErrorStore
     private function prepareDocument(array $event): array
     {
         $document = $event;
+        $document['service'] = (string) ($event['service'] ?? $this->service);
         $document['timestamp'] = $this->toUtcDateTime((string) ($event['timestamp'] ?? now('UTC')->format('Y-m-d\TH:i:s.v\Z')));
 
         return $document;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function queryFilter(): array
+    {
+        return $this->scopeByService ? ['service' => $this->service] : [];
     }
 
     /**

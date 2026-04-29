@@ -34,11 +34,17 @@ class ApmErrorBuffer
 
     private int $defaultLimit;
 
+    private string $service;
+
     public function __construct(private IApmErrorStore $store)
     {
         $this->maxBodySize = (int) config('server-orchestrator.apm.max_body_size', 32768);
         $this->maxMessageLength = (int) config('server-orchestrator.apm.max_message_length', 200);
         $this->defaultLimit = (int) config('server-orchestrator.apm.default_limit', 200);
+        $this->service = (string) config(
+            'server-orchestrator.apm.service',
+            config('server-orchestrator.prefix', config('app.name', 'laravel'))
+        );
     }
 
     public function shouldCapture(int $statusCode): bool
@@ -55,6 +61,7 @@ class ApmErrorBuffer
     {
         $this->store->tryEnqueue([
             'id' => (string) Str::uuid(),
+            'service' => $this->service,
             'timestamp' => now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
             'path' => $data['path'] ?? '',
             'method' => $data['method'] ?? '',
@@ -76,6 +83,7 @@ class ApmErrorBuffer
     {
         $this->store->tryEnqueue([
             'id' => (string) Str::uuid(),
+            'service' => $this->service,
             'timestamp' => now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
             'source' => 'outgoing',
             'path' => $data['url'] ?? '',
