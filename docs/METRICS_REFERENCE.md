@@ -106,6 +106,40 @@ Notlar:
 - Laravel tarafında gerçek pool pending metriği gözlemlenemediği için varsayılan çıktı `0` yayınlar.
 - MySQL `Threads_connected`, `Threads_running` ve `max_connections` değerleri kullanılır.
 
+## PHP / process metrikleri
+
+Bu gauge'lar `GET /metrics` sırasında anlık hesaplanır.
+
+### php_info
+
+PHP runtime bilgisi.
+
+Label: `version`
+
+### process_uptime_seconds
+
+Request process uptime değerini saniye cinsinden yayınlar.
+
+### process_memory_usage_bytes
+
+Anlık PHP bellek kullanımını byte cinsinden yayınlar.
+
+### process_memory_peak_bytes
+
+Peak PHP bellek kullanımını byte cinsinden yayınlar.
+
+### php_opcache_enabled
+
+OPcache aktifse `1`, değilse `0`.
+
+### php_opcache_hit_rate
+
+OPcache hit rate yüzdesi.
+
+### php_opcache_memory_used_bytes
+
+OPcache kullanılan belleği byte cinsinden yayınlar.
+
 ## APM hata endpoint'leri
 
 Kayıt edilen endpoint'ler:
@@ -137,7 +171,4 @@ Metrics storage driver:
 - `http_errors_total`
 - `db_connections_active`
 - `db_connections_max`
-- `php_info`
-- `process_*`
-- `php_opcache_*`
 - `app_health_status`

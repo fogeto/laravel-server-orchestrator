@@ -19,7 +19,7 @@ class MetricsController extends Controller
      */
     public function index(Request $request): Response
     {
-        $this->collectDatabaseMetrics();
+        $this->collectSystemMetrics();
 
         $renderer = new RenderTextFormat();
         $result = $renderer->render($this->registry->getMetricFamilySamples());

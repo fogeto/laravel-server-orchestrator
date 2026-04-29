@@ -260,11 +260,11 @@ return [
     |
     */
     'system_metrics' => [
-        'php_info' => false,
-        'memory' => false,
-        'uptime' => false,
+        'php_info' => true,
+        'memory' => true,
+        'uptime' => true,
         'database' => true,
-        'opcache' => false,
+        'opcache' => true,
         'health' => false,
     ],
 

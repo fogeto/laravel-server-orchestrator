@@ -165,15 +165,24 @@ curl http://localhost:8000/apm/errors
 | `db_client_connections_usage` | Gauge | `idle` ve `used` label'ları ile |
 | `db_client_connections_pending_requests` | Gauge | Laravel tarafında gözlemlenmediği için varsayılan `0` |
 
+### PHP / process metrics
+
+| Metrik | Tip | Not |
+|--------|-----|-----|
+| `php_info` | Gauge | `version` label'ı ile PHP runtime bilgisi |
+| `process_uptime_seconds` | Gauge | Request process uptime |
+| `process_memory_usage_bytes` | Gauge | Anlık PHP bellek kullanımı |
+| `process_memory_peak_bytes` | Gauge | Peak PHP bellek kullanımı |
+| `php_opcache_enabled` | Gauge | OPcache aktifse `1`, değilse `0` |
+| `php_opcache_hit_rate` | Gauge | OPcache hit rate yüzdesi |
+| `php_opcache_memory_used_bytes` | Gauge | OPcache kullanılan bellek |
+
 ### Varsayılan yüzeyde olmayanlar
 
 - `http_requests_total`
 - `http_errors_total`
 - `db_connections_active`
 - `db_connections_max`
-- `php_info`
-- `process_*`
-- `php_opcache_*`
 - `app_health_status`
 
 ## Konfigürasyon
@@ -409,7 +418,7 @@ rate(sql_query_errors_total[5m])
 
 **Sebep:** DB durum sorguları yavaşlıyor veya MySQL dışı sürücüde sessiz fallback yaşanıyordur.
 
-**Çözüm:** Rehber yüzeyinde yalnızca `db_client_*` metrikleri toplanır. Gerekirse config'den DB metriklerini kapatın:
+**Çözüm:** `/metrics` render edilirken PHP/process/opcache metrikleriyle birlikte `db_client_*` metrikleri de toplanır. Gerekirse config'den DB metriklerini kapatın:
 
 ```php
 'system_metrics' => [
