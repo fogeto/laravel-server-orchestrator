@@ -62,8 +62,10 @@ Sonuclari soyle yorumlayin:
 |------|-------|
 | `404 Not Found` | APM route kayitli degil, paket eski olabilir veya route cache eski olabilir |
 | `200 []` | Route calisiyor, storage/capture tarafinda sorun var |
+| `200 [...]` | Route calisiyor ve store'dan event okunuyor |
+| `403 []` | Genellikle paket/store degil, public domain proxy/security/middleware katmani engelliyor |
 | `500` | Controller/store tarafinda exception var, Laravel log'a bakin |
-| CORS hatasi | Browser problemi olabilir; once `curl` ile server response'u ayirin |
+| Browser CORS hatasi | Browser problemi olabilir; once `curl` ile server response'u ayirin |
 
 Yeni event uretmek icin:
 
@@ -73,6 +75,37 @@ curl -s https://your-domain.example.com/apm/errors?limit=5
 ```
 
 Eger bu testten sonra hala `[]` donuyorsa capture veya persistence tarafi calismiyor demektir.
+
+Beklenen `/apm/errors` JSON ornegi:
+
+```json
+[
+  {
+    "id": "0f7b86af-7b7a-4c25-8b9a-b4f8337bd5d2",
+    "timestamp": "2026-04-30T10:39:15.000Z",
+    "service": "ikbackend",
+    "path": "/codex-apm-test-404",
+    "method": "GET",
+    "statusCode": 404,
+    "errorType": "Not Found",
+    "message": "...",
+    "requestBody": "",
+    "responseBody": "...",
+    "durationMs": 12.34,
+    "clientIp": "127.0.0.1",
+    "userAgent": "curl/8.x",
+    "queryString": ""
+  }
+]
+```
+
+Beklenen `/metrics` davranisi:
+
+- HTTP status `200 OK` olmali.
+- Content-Type `text/plain; version=0.0.4; charset=utf-8` olmali.
+- Body icinde Prometheus satirlari bulunmali: `# HELP`, `# TYPE`, `php_info`, `process_memory_limit_bytes`.
+- Trafik olustuysa `http_request_duration_seconds`, `http_requests_received_total` ve SQL calistiysa `sql_query_duration_seconds` gorunmeli.
+- Hic trafik yoksa HTTP/SQL metric aileleri az veya bos olabilir; once bir API endpoint'ine istek atip sonra `/metrics` tekrar okunmalidir.
 
 ## 3. Runtime Config'i Kontrol Et
 
@@ -172,7 +205,7 @@ grep -n "'store'" config/server-orchestrator.php
 Eger vendor config icinde bile `store` ve `service` yoksa `vendor:publish` sorunu cozmez. Once paketi guncelleyin:
 
 ```bash
-composer require fogeto/laravel-server-orchestrator:1.1.10 --with-all-dependencies
+composer require fogeto/laravel-server-orchestrator:1.1.11 --with-all-dependencies
 php artisan vendor:publish --tag=server-orchestrator-config --force
 php artisan optimize:clear
 rm -f bootstrap/cache/config.php
@@ -295,7 +328,7 @@ Yeterli olmadigi durum:
 Bu durumda once composer update gerekir:
 
 ```bash
-composer require fogeto/laravel-server-orchestrator:1.1.10 --with-all-dependencies
+composer require fogeto/laravel-server-orchestrator:1.1.11 --with-all-dependencies
 ```
 
 Sonra tekrar publish:
@@ -478,16 +511,227 @@ process_memory_usage_bytes / process_memory_limit_bytes * 100
 |--------|----------------|-------|
 | `/apm/errors` 404 | Route yok veya paket eski | Paketi guncelle, route cache temizle |
 | `/apm/errors` 200 ama `[]` | Event yok, store yazmiyor veya service filtresi | Runtime config, manual store test, Mongo/Redis kontrolu |
+| Public `/apm/errors` 403 ama container icinde 200 | App route calisiyor, dis katman engelliyor | Nginx/proxy/security rule ve CORS ayarlarini kontrol et |
 | Mongo collection var ama endpoint bos | Index/collection olusmus ama dokuman yok veya service farkli | `countDocuments`, `find`, service aggregate kontrolu |
+| `Detected invalid UTF-8 for field path "requestBody"` | APM binary/non-UTF8 body'yi Mongo'ya raw string olarak yazmaya calismis | UTF-8 sanitization patch'ini deploy et; binary body placeholder olarak yazilir |
 | `apm.mongo.connection_string` bos | Env container'a gecmemis veya cache eski | `docker inspect`, `optimize:clear`, recreate |
-| `apm.store` null | Eski config veya vendor package | `composer require 1.1.10`, publish force |
+| `apm.store` null | Eski config veya vendor package | `composer require 1.1.11`, publish force |
 | `vendor:publish --force` sonrasi hala null | Vendor config eski | Once composer update/require |
+| `ix_apm_ttl already exists with different options` | Mongo'da eski TTL index ayni isimle farkli key/options ile kalmis | `v1.1.11` patch'ini deploy et veya `db.ApmErrors.dropIndex("ix_apm_ttl")`/`drop()` uygula |
 | `docker compose restart` sonrasi env gelmedi | Restart env config'ini yenilemez | `up -d --no-deps --force-recreate` veya `down/up` |
 | `No such container: eski_id` | Container recreate sonrasi ID degisti | `docker exec -ti ik-backend bash` |
 | PhpRedis calismiyor | `ext-redis` yok veya client mismatch | `php -m`, `REDIS_CLIENT=phpredis`, restart/recreate |
 | Public domain'de metric yok ama container icinde var | Port/proxy farki | Container, host port, public domain ucunu ayri test et |
 
-## 13. Known-Good Mongo Kurulum Akisi
+## 13. APM Bos Gelirse Uygulanacak Net Sira
+
+Bu sira `/apm/errors` `200 []` dondugunde uygulanmalidir.
+
+1. Route'u kontrol edin:
+
+```bash
+php artisan route:list | grep -E "metrics|apm"
+curl -i http://127.0.0.1/apm/errors?limit=5
+```
+
+2. Runtime config'i kontrol edin:
+
+```bash
+php artisan tinker --execute='dump(config("server-orchestrator.prefix")); dump(config("server-orchestrator.apm.enabled")); dump(config("server-orchestrator.apm.store")); dump(config("server-orchestrator.apm.service")); dump(config("server-orchestrator.apm.mongo")); dump(config("server-orchestrator.apm.redis"));'
+```
+
+Beklenen ornek:
+
+```text
+"ikbackend"
+true
+"mongo"
+"ikbackend"
+array:3 [
+  "connection_string" => "mongodb://..."
+  "database" => "orchestrator_ik"
+  "collection" => "ApmErrors"
+]
+```
+
+`prefix` dogru ama `apm.service` farkliysa `ORCHESTRATOR_APM_SERVICE` env'i eski kalmistir. Service degeri prefix'ten onceliklidir.
+
+3. Test event uretin:
+
+```bash
+curl -i http://127.0.0.1/codex-apm-test-404
+curl -s http://127.0.0.1/apm/errors?limit=5
+```
+
+4. Hala `[]` ise store'a manuel yazip okuyun:
+
+```bash
+php artisan tinker --execute='
+$buffer = app(\Fogeto\ServerOrchestrator\Services\ApmErrorBuffer::class);
+$buffer->captureIncoming([
+    "path" => "/manual-apm-test",
+    "method" => "GET",
+    "statusCode" => 500,
+    "requestBody" => "",
+    "responseBody" => "manual apm test",
+    "durationMs" => 1,
+    "clientIp" => "127.0.0.1",
+    "userAgent" => "artisan",
+    "queryString" => "",
+]);
+dump($buffer->getAll(5));
+'
+```
+
+Manuel test event donuyorsa store saglamdir; problem middleware'in event yakalamamasindadir. Manuel test de `[]` donuyorsa Mongo/Redis baglantisi, service filtresi veya extension tarafi incelenmelidir.
+
+5. Mongo kullaniliyorsa collection'i kontrol edin:
+
+```bash
+mongosh "mongodb://USER:PASS@HOST:27017/?authSource=admin"
+use orchestrator_ik
+db.ApmErrors.countDocuments()
+db.ApmErrors.find({}, {service: 1, timestamp: 1, path: 1, statusCode: 1}).sort({timestamp: -1}).limit(5)
+db.ApmErrors.aggregate([{ $group: { _id: "$service", count: { $sum: 1 } } }])
+```
+
+Eger dokumanlar farkli `service` altinda yazilmissa `/apm/errors` bos donebilir. Bu durumda env'i duzeltin veya test verisini temizleyin.
+
+6. Eski/yanlis test verisini tamamen temizlemek gerekiyorsa:
+
+```bash
+mongosh "mongodb://USER:PASS@HOST:27017/?authSource=admin"
+use orchestrator_ik
+db.ApmErrors.drop()
+```
+
+`drop()` hem dokumanlari hem eski indexleri temizler. Canli veri saklanacaksa bunun yerine sadece ilgili `service` icin `deleteMany({service: "ikbackend"})` kullanilmalidir.
+
+### Mongo TTL Index Hatasi
+
+Sentry veya Laravel log'da su hata gorulebilir:
+
+```text
+MongoDB\Driver\Exception\CommandException:
+Index with name: ix_apm_ttl already exists with different options
+```
+
+Sebep: MongoDB'de `ApmErrors` collection'i icinde `ix_apm_ttl` adinda eski bir index vardir, fakat yeni paket ayni isimle `timestamp` alaninda TTL index olusturmak ister. MongoDB ayni isimli ama farkli key/options'a sahip index'i yeniden yaratmaya izin vermez.
+
+`v1.1.11` patch'i uyumsuz eski TTL index'i otomatik dusurup dogru index'i yeniden olusturur. Canlida acil temizlik gerekiyorsa:
+
+```javascript
+use orchestrator_ik
+db.ApmErrors.dropIndex("ix_apm_ttl")
+```
+
+Tum test verisini ve eski indexleri temizlemek istiyorsaniz:
+
+```javascript
+use orchestrator_ik
+db.ApmErrors.drop()
+```
+
+Sonra uygulama ilk APM store acilisinda indexleri yeniden olusturur.
+
+### Mongo Invalid UTF-8 Body Hatasi
+
+Sentry veya Laravel log'da su hata gorulebilir:
+
+```text
+MongoDB\Driver\Exception\UnexpectedValueException:
+Detected invalid UTF-8 for field path "requestBody"
+```
+
+Sebep: Bot veya scanner gibi bir client HTTP body olarak binary payload gondermistir. Ornek: `Content-Type: application/dns-message`. APM middleware 404/500 response'u yakalarken request body'yi de event'e ekler. MongoDB string alanlari valid UTF-8 bekledigi icin binary body insert sirasinda hata verir.
+
+Patch sonrasi davranis:
+
+- Invalid UTF-8 body raw olarak Mongo'ya yazilmaz.
+- `requestBody` veya `responseBody` alanina guvenli placeholder yazilir.
+- Ornek placeholder:
+
+```text
+[non-utf8 string omitted; bytes=41; base64_prefix=...]
+```
+
+Bu hata uygulama endpoint'inden kaynaklanmaz; APM persistence katmaninin binary body sanitization eksiginden kaynaklanir.
+
+## 14. Public Domain, Proxy ve CORS Kontrolu
+
+Bu ayrim onemlidir:
+
+- `curl` ile `403` donuyorsa bu CORS degildir; server/proxy/security katmani istegi engelliyordur.
+- Browser console'da CORS hatasi varken `curl` `200` donuyorsa Laravel `config/cors.php` veya proxy CORS header'lari eksiktir.
+- Container icinde `127.0.0.1` 200 ama public domain 403 ise paket ve Mongo calisiyor demektir; dis katman kontrol edilmelidir.
+
+Uc noktayi ayri test edin:
+
+```bash
+# Container icinde
+curl -i http://127.0.0.1/apm/errors?limit=5
+
+# Container icinde Host header ile
+curl -i -H 'Host: your-domain.example.com' http://127.0.0.1/apm/errors?limit=5
+
+# Public domain
+curl -i https://your-domain.example.com/apm/errors?limit=5
+```
+
+Host header ile container icinde `200`, public domain'de `403` ise nginx/reverse proxy/WAF/security rule kontrol edilmelidir:
+
+```bash
+grep -R "your-domain.example.com\|apm/errors\|deny\|allow\|return 403" -n /etc/nginx /etc/nginx/sites-enabled
+```
+
+Browser dashboard CORS hatasi aliyorsa Laravel uygulamasinda `config/cors.php` paths icine root-level endpoint'leri ekleyin:
+
+```php
+'paths' => [
+    'api/*',
+    'metrics',
+    'apm/errors',
+    '_apm/errors',
+    '__apm/errors',
+],
+
+'allowed_methods' => ['GET', 'OPTIONS'],
+
+'allowed_origins' => [
+    'https://server.aysbulut.com',
+    'https://server-orchestrator.aysbulut.com',
+],
+
+'allowed_headers' => ['*'],
+
+'supports_credentials' => false,
+```
+
+Sonra cache temizleyin:
+
+```bash
+php artisan optimize:clear
+```
+
+Preflight kontrolu:
+
+```bash
+curl -i -X OPTIONS \
+  -H "Origin: https://server-orchestrator.aysbulut.com" \
+  -H "Access-Control-Request-Method: GET" \
+  https://your-domain.example.com/apm/errors
+```
+
+Beklenen header'lar:
+
+```text
+Access-Control-Allow-Origin: https://server-orchestrator.aysbulut.com
+Access-Control-Allow-Methods: GET, OPTIONS
+```
+
+Eger OPTIONS veya GET hala `403` donuyorsa CORS dosyasi degil, proxy/security katmani engelliyordur.
+
+## 15. Known-Good Mongo Kurulum Akisi
 
 Env:
 
@@ -502,7 +746,7 @@ Logging__MongoDB__DatabaseName=orchestrator_ik
 Paket:
 
 ```bash
-composer require fogeto/laravel-server-orchestrator:1.1.10 --with-all-dependencies
+composer require fogeto/laravel-server-orchestrator:1.1.11 --with-all-dependencies
 ```
 
 Config:
@@ -546,7 +790,7 @@ curl -i https://ikapi.webdekolay.com/codex-apm-test-404
 curl -s https://ikapi.webdekolay.com/apm/errors?limit=5
 ```
 
-## 14. Guvenlik Notu
+## 16. Guvenlik Notu
 
 Mongo connection string, Redis sifresi, API token veya benzeri secret'lari loglara, dokumanlara veya chat'e acik yazmayin.
 
@@ -578,4 +822,3 @@ Logging__MongoDB__ConnectionString=mongodb://USER:PASS@HOST:27017/?authSource=ad
           manuel test event donuyor -> middleware kaydi/sirasi problemi.
     Hayir -> 500/log hatasini incele.
 ```
-

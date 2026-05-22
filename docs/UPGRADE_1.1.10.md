@@ -1,65 +1,90 @@
-# Laravel Server Orchestrator v1.1.10 Güncelleme Rehberi
+# Laravel Server Orchestrator v1.1.10 Guncelleme Rehberi
 
-Bu doküman, `fogeto/laravel-server-orchestrator` paketini kullanan Laravel projelerini son stabil sürüm olan `v1.1.10` sürümüne geçirmek için hazırlanmıştır.
+Bu rehber, `fogeto/laravel-server-orchestrator` kullanan Laravel projelerini `v1.1.10` surumune gecirmek icin hazirlandi.
 
-`v1.1.10` ile öne çıkan noktalar:
+`v1.1.10` ile gelen ana konular:
 
-- APM hata event'leri MongoDB veya Redis üzerinde tutulabilir.
-- Redis tarafında `predis` veya `phpredis` seçimi env üzerinden yapılabilir.
-- PHP/process metrikleri genişletildi.
-- Bellek metrikleri ayrıştırıldı:
-  - `process_memory_usage_bytes`: gerçek anlık PHP kullanımı
-  - `process_memory_allocated_bytes`: PHP allocator tarafından ayrılan anlık bellek
-  - `process_memory_peak_bytes`: peak gerçek PHP kullanımı
-  - `process_memory_peak_allocated_bytes`: peak ayrılan bellek
-  - `process_memory_limit_bytes`: PHP `memory_limit`
-- `/apm/errors` ve `/__apm/errors` endpoint'leri 4xx/5xx hata event'lerini döner.
+- APM error store secimi: `mongo` veya `redis`.
+- Redis tarafinda `predis` / `phpredis` secimi.
+- PHP, process ve OPcache metricleri.
+- Bellek metriclerinin ayrilmasi:
+  - `process_memory_usage_bytes`
+  - `process_memory_allocated_bytes`
+  - `process_memory_peak_bytes`
+  - `process_memory_peak_allocated_bytes`
+  - `process_memory_limit_bytes`
+- APM endpointleri:
+  - `GET /apm/errors`
+  - `GET /_apm/errors`
+  - `GET /__apm/errors`
+- Metrics endpointi:
+  - `GET /metrics`
 
-## Kimler Uygulamalı
+## 1. Kimler Guncellemeli
 
-- Paketi `v1.1.9` veya daha eski sürümde kullanan projeler
-- APM storage seçimini MongoDB veya Redis olarak yönetmek isteyen projeler
-- Redis client olarak `predis` veya `phpredis` seçimini env ile yapmak isteyen projeler
-- Dashboard tarafında PHP memory yüzdesini doğru göstermek isteyen kurulumlar
+Bu rehberi uygulayin:
 
-## Ön Koşullar
+- Paket `1.1.9` veya daha eskiyse.
+- `/metrics` endpointinde eski Redis metric verisi veya label uyumsuzlugu yasaniyorsa.
+- APM eventlerini Mongo yerine Redis'e almak veya Redis'ten tekrar Mongo'ya donmek istiyorsaniz.
+- Dashboard'da PHP memory yuzdesi yanlis gorunuyorsa.
+- Published `config/server-orchestrator.php` eski kaldiysa ve `apm.store`, `apm.service` gibi alanlar `null` donuyorsa.
+- Sentry/loglarda `Index with name: ix_apm_ttl already exists with different options` hatasi goruyorsaniz.
+- Sentry/loglarda `Detected invalid UTF-8 for field path "requestBody"` hatasi goruyorsaniz.
 
-- Laravel 9, 10, 11 veya 12
-- PHP 8.0+
-- Metrics storage Redis ise çalışan Redis bağlantısı
-- APM MongoDB kullanılacaksa `ext-mongodb` ve MongoDB connection bilgileri
-- APM Redis kullanılacaksa Redis bağlantısı
-- `ORCHESTRATOR_REDIS_CLIENT=phpredis` kullanılacaksa PHP `redis` extension'ı
+## 2. On Kosullar
 
-Kontrol komutları:
+Kontrol edin:
 
 ```bash
 php -v
 php -m | grep -Ei "mongodb|redis"
-composer show fogeto/laravel-server-orchestrator | grep versions
+composer show fogeto/laravel-server-orchestrator
 ```
 
-## 1. Paketi v1.1.10'a Güncelle
+Gereksinimler:
 
-Proje dizinine girin:
+- PHP `^8.0`
+- Laravel 9, 10, 11 veya 12
+- Metrics Redis driver kullaniliyorsa calisan Redis baglantisi
+- Mongo APM kullanilacaksa `ext-mongodb`
+- PhpRedis kullanilacaksa `ext-redis`
+- Predis kullanilacaksa `predis/predis`
+
+## 3. Guncelleme Oncesi Yedek
+
+Published config varsa yedek alin:
 
 ```bash
-cd /path/to/your-project
+cp config/server-orchestrator.php config/server-orchestrator.php.bak
+cp .env .env.bak
 ```
 
-Paketi direkt `v1.1.10` sürümüne çekin:
+Canli ortamda container env degerlerini de not alin:
+
+```bash
+printenv | grep -E "ORCHESTRATOR|Logging__MongoDB|REDIS"
+```
+
+Host tarafindan container env kontrolu:
+
+```bash
+docker inspect your-container-name --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E "ORCHESTRATOR|Logging__MongoDB|REDIS"
+```
+
+## 4. Paketi 1.1.10'a Guncelle
 
 ```bash
 composer require fogeto/laravel-server-orchestrator:1.1.10 --with-all-dependencies
 ```
 
-Eğer `composer.json` içinde constraint zaten uygunsa alternatif olarak:
+Alternatif:
 
 ```bash
 composer update fogeto/laravel-server-orchestrator --with-all-dependencies
 ```
 
-Sürümü doğrulayın:
+Surumu dogrulayin:
 
 ```bash
 composer show fogeto/laravel-server-orchestrator | grep versions
@@ -71,395 +96,521 @@ Beklenen:
 versions : * v1.1.10
 ```
 
-## 2. Cache Temizle ve Runtime Restart Yap
+## 5. Config Publish / Merge
 
-Laravel cache'lerini temizleyin:
-
-```bash
-php artisan optimize:clear
-php artisan config:clear
-php artisan route:clear
-```
-
-Docker kullanıyorsanız:
+Yeni config anahtarlarini host projede gormek icin publish edin:
 
 ```bash
-docker compose restart
-```
-
-Horizon, Octane veya queue worker varsa:
-
-```bash
-php artisan horizon:terminate
-php artisan octane:reload
-php artisan queue:restart
-```
-
-PHP-FPM kullanıyorsanız PHP-FPM servisinin de reload/restart edilmesi gerekir.
-
-## 3. Vendor Publish Gerekli mi?
-
-Zorunlu değil.
-
-Paket yeni config anahtarlarını runtime'da default config üzerinden tamamlar. Sadece `.env` ile ayar verecekseniz genellikle yeniden publish yapmanız gerekmez.
-
-Ancak host projedeki `config/server-orchestrator.php` dosyasında yeni ayarları fiziksel olarak görmek veya elle düzenlemek istiyorsanız publish kullanabilirsiniz.
-
-Güvenli yöntem:
-
-```bash
-cp config/server-orchestrator.php config/server-orchestrator.php.bak
 php artisan vendor:publish --tag=server-orchestrator-config --force
+```
+
+Sonra cache temizleyin:
+
+```bash
 php artisan optimize:clear
 ```
 
-Dikkat: `--force` mevcut config dosyasını ezer. Projeye özel eski ayarlarınız varsa önce yedek alın veya manuel merge yapın.
+Dikkat: `--force` mevcut `config/server-orchestrator.php` dosyasini ezer. Projeye ozel ayarlariniz varsa yedekten manuel merge yapin.
 
-## 4. APM Store Seçimi
+Yeni config icinde su alanlar olmali:
 
-APM store seçimi `ORCHESTRATOR_APM_STORE` ile yapılır.
-
-Desteklenen değerler:
-
-- `mongo`
-- `redis`
-
-APM event TTL varsayılan olarak 1 gündür:
-
-```env
-ORCHESTRATOR_APM_TTL=86400
+```bash
+grep -n "'store'\|'service'\|'scope_by_service'\|'redis'" config/server-orchestrator.php
 ```
 
-Bu değer hem MongoDB TTL index'i hem Redis event key TTL'i için kullanılır.
+Beklenen:
 
-## 5. MongoDB APM Kullanımı
+```text
+'store' => env('ORCHESTRATOR_APM_STORE', 'mongo')
+'service' => env('ORCHESTRATOR_APM_SERVICE', env('ORCHESTRATOR_PREFIX', env('APP_NAME', 'laravel')))
+'scope_by_service' => env('ORCHESTRATOR_APM_SCOPE_BY_SERVICE', true)
+'redis' => [...]
+```
 
-MongoDB kullanmak için:
+## 6. Ortak Env Ayarlari
+
+Her projede benzersiz prefix kullanin:
 
 ```env
+ORCHESTRATOR_PREFIX=ticaret_backend
+ORCHESTRATOR_METRICS_STORAGE=redis
+ORCHESTRATOR_REDIS_CONNECTION=default
+ORCHESTRATOR_METRICS_TTL=86400
+```
+
+APM service degerini acik vermeniz onerilir:
+
+```env
+ORCHESTRATOR_APM_SERVICE=ticaret_backend
+```
+
+Onemli: `ORCHESTRATOR_APM_SERVICE`, `ORCHESTRATOR_PREFIX` degerinden onceliklidir. Prefix dogru ama service yanlis gorunuyorsa container icinde eski `ORCHESTRATOR_APM_SERVICE` kalmistir.
+
+## 7. Mongo APM Kurulumu
+
+Mongo kullanmak icin:
+
+```env
+ORCHESTRATOR_PREFIX=ticaret_backend
 ORCHESTRATOR_APM_STORE=mongo
-ORCHESTRATOR_APM_SERVICE=ecommerce-backend
+ORCHESTRATOR_APM_SERVICE=ticaret_backend
+ORCHESTRATOR_APM_SCOPE_BY_SERVICE=true
 ORCHESTRATOR_APM_TTL=86400
 
-Logging__MongoDB__ConnectionString=mongodb://user:pass@host:27017/?authSource=admin
-Logging__MongoDB__DatabaseName=ecommerce
+Logging__MongoDB__ConnectionString=mongodb://USER:PASS@HOST:27017/?authSource=admin
+Logging__MongoDB__DatabaseName=orchestrator_ecommerce
 ```
 
 Notlar:
 
-- Collection adı sabittir: `ApmErrors`
-- `ORCHESTRATOR_APM_SERVICE` verilmezse `ORCHESTRATOR_PREFIX`, o da yoksa `APP_NAME` kullanılır.
-- Mongo store varsayılan olarak sadece kendi `service` değerindeki kayıtları okur.
+- Collection adi varsayilan olarak `ApmErrors`.
+- Mongo store varsayilan olarak sadece kendi `service` degerindeki kayitlari okur.
+- Eski kayitlarda `service` alani yoksa veya farkli service varsa endpoint bos donebilir.
 
-Runtime config doğrulama:
+Runtime kontrol:
 
 ```bash
-php artisan tinker --execute='dump(config("server-orchestrator.apm.store")); dump(config("server-orchestrator.apm.mongo")); dump(config("server-orchestrator.apm.service"));'
+php artisan tinker --execute='dump(config("server-orchestrator.prefix")); dump(config("server-orchestrator.apm.store")); dump(config("server-orchestrator.apm.service")); dump(config("server-orchestrator.apm.mongo"));'
 ```
 
 Beklenen:
 
 ```text
+"ticaret_backend"
 "mongo"
+"ticaret_backend"
+array:3 [
+  "connection_string" => "mongodb://..."
+  "database" => "orchestrator_ecommerce"
+  "collection" => "ApmErrors"
+]
 ```
 
-## 6. Redis APM Kullanımı
+## 8. Redis APM Kurulumu
 
-Redis store kullanmak için:
+Redis kullanmak icin:
 
 ```env
+ORCHESTRATOR_PREFIX=ticaret_backend
 ORCHESTRATOR_APM_STORE=redis
-ORCHESTRATOR_APM_SERVICE=ecommerce-backend
-ORCHESTRATOR_APM_TTL=86400
+ORCHESTRATOR_APM_SERVICE=ticaret_backend
 ORCHESTRATOR_APM_REDIS_CONNECTION=default
-ORCHESTRATOR_APM_REDIS_PREFIX=ecommerce-backend
+ORCHESTRATOR_APM_REDIS_PREFIX=ticaret_backend
+ORCHESTRATOR_APM_TTL=86400
 ```
 
-Redis APM key'leri şu mantıkla ayrılır:
+Redis key mantigi:
 
 ```text
 apm:{prefix}:events
-apm:{prefix}:event:{id}
+apm:{prefix}:event:{uuid}
 ```
 
-`ORCHESTRATOR_APM_REDIS_PREFIX` boşsa `ORCHESTRATOR_PREFIX` kullanılır.
+Laravel Redis prefix'i varsa raw Redis'te key onune `laravel_database_` gibi ek gelebilir.
 
-## 7. Predis Kullanımı
+## 9. Predis / PhpRedis Secimi
 
-Predis kullanmak için:
+Predis:
 
 ```env
 REDIS_CLIENT=predis
 ORCHESTRATOR_REDIS_CLIENT=predis
-ORCHESTRATOR_APM_STORE=redis
-ORCHESTRATOR_APM_REDIS_CONNECTION=default
-ORCHESTRATOR_APM_REDIS_PREFIX=ecommerce-test-predis
 ```
 
-Sonra:
+PhpRedis:
 
-```bash
-php artisan optimize:clear
-docker compose restart
+```env
+REDIS_CLIENT=phpredis
+ORCHESTRATOR_REDIS_CLIENT=phpredis
 ```
 
-Doğrulama:
-
-```bash
-php artisan tinker --execute='dump(config("database.redis.client")); dump(config("server-orchestrator.redis_client")); dump(config("server-orchestrator.apm.store"));'
-```
-
-Beklenen:
-
-```text
-"predis"
-"predis"
-"redis"
-```
-
-## 8. PhpRedis Kullanımı
-
-PhpRedis kullanmak için önce extension yüklü mü kontrol edin:
+PhpRedis icin extension kontrolu:
 
 ```bash
 php -m | grep -i redis
 ```
 
-Env:
-
-```env
-REDIS_CLIENT=phpredis
-ORCHESTRATOR_REDIS_CLIENT=phpredis
-ORCHESTRATOR_APM_STORE=redis
-ORCHESTRATOR_APM_REDIS_CONNECTION=default
-ORCHESTRATOR_APM_REDIS_PREFIX=ecommerce-test-phpredis
-```
-
-Sonra:
-
-```bash
-php artisan optimize:clear
-docker compose restart
-```
-
-Doğrulama:
+Runtime kontrol:
 
 ```bash
 php artisan tinker --execute='dump(config("database.redis.client")); dump(config("server-orchestrator.redis_client")); dump(get_class(\Illuminate\Support\Facades\Redis::connection("default")));'
 ```
 
-Beklenen connection class Laravel sürümüne göre değişebilir ama `PhpRedisConnection` görmeniz gerekir.
+## 10. Docker Restart Degil Recreate
 
-## 9. Route Doğrulama
+Env degistiyse sadece `docker compose restart` yeterli olmayabilir. Recreate kullanin:
+
+```bash
+docker compose up -d --no-deps --force-recreate your-service-name
+```
+
+Gerekirse tum stack:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+Container icinde cache temizleyin:
+
+```bash
+php artisan optimize:clear
+```
+
+Queue/Horizon/Octane varsa:
+
+```bash
+php artisan queue:restart
+php artisan horizon:terminate
+php artisan octane:reload
+```
+
+## 11. Route Kontrolu
 
 ```bash
 php artisan route:list | grep -E "metrics|apm"
 ```
 
-Beklenen yüzey:
+Beklenen:
 
 ```text
 GET|HEAD  metrics
-GET|HEAD  __apm/errors
 GET|HEAD  apm/errors
+GET|HEAD  _apm/errors
+GET|HEAD  __apm/errors
 ```
 
-## 10. Metrics Doğrulama
-
-Container içinden:
+Route yoksa:
 
 ```bash
-curl -s http://127.0.0.1/metrics | grep -E "php_info|process_memory|process_uptime|php_opcache"
+php artisan optimize:clear
+php artisan route:clear
 ```
 
-Host üzerinden Docker port map varsa örnek:
+## 12. Metrics Dogrulama
+
+Container icinde:
 
 ```bash
-curl -s http://127.0.0.1:8085/metrics | grep -E "php_info|process_memory|process_uptime|php_opcache"
+curl -i http://127.0.0.1/metrics
 ```
 
-Public domain üzerinden:
-
-```bash
-curl -s https://your-domain.example.com/metrics | grep -E "php_info|process_memory|process_uptime|php_opcache"
-```
-
-Beklenen örnek metrikler:
+Beklenen:
 
 ```text
-php_info{version="8.3.30"} 1
-process_uptime_seconds 12.3
-process_memory_usage_bytes 4194304
-process_memory_allocated_bytes 4194304
-process_memory_peak_bytes 6291456
-process_memory_peak_allocated_bytes 6291456
-process_memory_limit_bytes 1073741824
-php_opcache_enabled 1
-php_opcache_hit_rate 98.1
-php_opcache_memory_used_bytes 95352064
+HTTP/1.1 200 OK
+Content-Type: text/plain; version=0.0.4; charset=utf-8
 ```
 
-Dashboard tarafında memory yüzdesi için doğru yorum:
+Body icinde ornek metricler:
 
-- Kullanılan gerçek bellek: `process_memory_usage_bytes`
-- Allocator tarafından ayrılmış bellek: `process_memory_allocated_bytes`
-- Limit: `process_memory_limit_bytes`
-- Yüzde: `process_memory_usage_bytes / process_memory_limit_bytes * 100`
+```text
+# HELP php_info Information about the PHP environment.
+# TYPE php_info gauge
+php_info{version="8.3.30"} 1
 
-`process_memory_limit_bytes` değeri `1073741824` ise bu 1 GB limit demektir. Bu değer kullanılan bellek değil, üst limittir.
+process_memory_usage_bytes 123456
+process_memory_allocated_bytes 2097152
+process_memory_peak_bytes 234567
+process_memory_peak_allocated_bytes 4194304
+process_memory_limit_bytes 1073741824
+process_uptime_seconds 1.23
+php_opcache_enabled 1
+```
 
-## 11. APM Error Event Doğrulama
+HTTP/SQL metrikleri trafik olustuktan sonra gorunur:
 
-Yakalanan status code'lar:
+```bash
+curl -i http://127.0.0.1/api/health
+curl -s http://127.0.0.1/metrics | grep -E "http_request_duration_seconds|http_requests_received_total|sql_query_duration_seconds"
+```
+
+## 13. APM Event Dogrulama
+
+APM sadece su status kodlarini yakalar:
 
 ```text
 400, 401, 403, 404, 429, 500, 502, 503
 ```
 
-Test için bir 404 üretin:
+Test 404 uretin:
 
 ```bash
-curl -i http://127.0.0.1:8085/apm-test-404
+curl -i http://127.0.0.1/codex-apm-test-404
+curl -s http://127.0.0.1/apm/errors?limit=5
 ```
 
-APM feed'i okuyun:
+Beklenen JSON:
+
+```json
+[
+  {
+    "id": "uuid",
+    "timestamp": "2026-04-30T10:39:15.000Z",
+    "service": "ticaret_backend",
+    "path": "/codex-apm-test-404",
+    "method": "GET",
+    "statusCode": 404,
+    "errorType": "Not Found",
+    "message": "...",
+    "requestBody": "",
+    "responseBody": "...",
+    "durationMs": 12.34,
+    "clientIp": "127.0.0.1",
+    "userAgent": "curl/8.x",
+    "queryString": ""
+  }
+]
+```
+
+## 14. APM Bos Gelirse
+
+`/apm/errors` `200 []` donuyorsa sira ile kontrol edin.
+
+Runtime config:
 
 ```bash
-curl -s http://127.0.0.1:8085/apm/errors?limit=5
+php artisan tinker --execute='dump(config("server-orchestrator.apm.enabled")); dump(config("server-orchestrator.apm.store")); dump(config("server-orchestrator.apm.service")); dump(config("server-orchestrator.apm.mongo")); dump(config("server-orchestrator.apm.redis"));'
 ```
 
-Beklenen:
-
-- JSON array dönmeli.
-- Son event içinde `statusCode: 404` olmalı.
-- `path` alanında test ettiğiniz path görünmeli.
-- `service` alanı proje/service adınız olmalı.
-
-Public domain üzerinden:
+Manuel store testi:
 
 ```bash
-curl -i https://your-domain.example.com/apm-test-404
-curl -s https://your-domain.example.com/apm/errors?limit=5
+php artisan tinker --execute='
+$buffer = app(\Fogeto\ServerOrchestrator\Services\ApmErrorBuffer::class);
+$buffer->captureIncoming([
+    "path" => "/manual-apm-test",
+    "method" => "GET",
+    "statusCode" => 500,
+    "requestBody" => "",
+    "responseBody" => "manual apm test",
+    "durationMs" => 1,
+    "clientIp" => "127.0.0.1",
+    "userAgent" => "artisan",
+    "queryString" => "",
+]);
+dump($buffer->getAll(5));
+'
 ```
 
-## 12. Redis Store Gerçekten Yazıyor mu?
+Sonuc:
 
-APM store Redis ise test event ürettikten sonra Redis key'lerini kontrol edin:
+- Manuel event gorunuyorsa store calisiyor, middleware/capture tarafini kontrol edin.
+- Manuel event de `[]` ise Mongo/Redis baglantisi, extension veya service filtresi sorunludur.
+
+## 15. Mongo Veri Temizleme
+
+Testten sonra Mongo APM verisini tamamen temizlemek icin:
 
 ```bash
-docker exec -it ecommerce-redis redis-cli keys "apm:ecommerce-test-predis:*"
+mongosh "mongodb://USER:PASS@HOST:27017/?authSource=admin"
+use orchestrator_ecommerce
+db.ApmErrors.drop()
 ```
 
-veya phpredis testi için:
+`drop()` dokumanlari ve eski indexleri temizler.
 
-```bash
-docker exec -it ecommerce-redis redis-cli keys "apm:ecommerce-test-phpredis:*"
+Canli veriyi komple silmek istemiyorsaniz sadece ilgili service icin silin:
+
+```javascript
+db.ApmErrors.deleteMany({ service: "ticaret_backend" })
 ```
 
-Beklenen:
+Service dagilimini kontrol:
+
+```javascript
+db.ApmErrors.aggregate([{ $group: { _id: "$service", count: { $sum: 1 } } }])
+```
+
+Son kayitlari kontrol:
+
+```javascript
+db.ApmErrors.find({}, {service: 1, timestamp: 1, path: 1, statusCode: 1}).sort({timestamp: -1}).limit(5)
+```
+
+TTL index hatasi gorurseniz:
 
 ```text
-apm:ecommerce-test-predis:events
-apm:ecommerce-test-predis:event:{uuid}
+MongoDB\Driver\Exception\CommandException:
+Index with name: ix_apm_ttl already exists with different options
 ```
 
-TTL kontrolü:
+Sebep: Eski kurulumdan kalan `ix_apm_ttl` index'i yeni paketin bekledigi `timestamp` TTL index'i ile ayni isimde ama farkli key/options ile duruyordur.
+
+`v1.1.10` uyumsuz eski TTL index'i otomatik dusurup yeniden olusturacak sekilde hazirlanmistir. Acil manuel duzeltme:
+
+```javascript
+db.ApmErrors.dropIndex("ix_apm_ttl")
+```
+
+Veri temizligi de isteniyorsa:
+
+```javascript
+db.ApmErrors.drop()
+```
+
+Invalid UTF-8 body hatasi gorurseniz:
+
+```text
+MongoDB\Driver\Exception\UnexpectedValueException:
+Detected invalid UTF-8 for field path "requestBody"
+```
+
+Sebep genellikle bot/scanner isteklerindeki binary body'dir. Ornek: `Content-Type: application/dns-message`. Patch sonrasi APM buffer invalid UTF-8 body'leri raw olarak Mongo'ya yazmaz; guvenli placeholder yazar:
+
+```text
+[non-utf8 string omitted; bytes=41; base64_prefix=...]
+```
+
+## 16. Redis Veri Temizleme
+
+Paket uzerinden secili prefix'i temizlemek:
 
 ```bash
-docker exec -it ecommerce-redis redis-cli ttl "apm:ecommerce-test-predis:event:{uuid}"
+php artisan tinker --execute='app(\Fogeto\ServerOrchestrator\Contracts\IApmErrorStore::class)->clear(); dump("APM temizlendi");'
 ```
 
-Beklenen TTL yaklaşık `86400` saniyeden geriye saymalıdır.
-
-## 13. Mongo Store Gerçekten Yazıyor mu?
-
-APM store Mongo ise:
-
-- Database: `Logging__MongoDB__DatabaseName`
-- Collection: `ApmErrors`
-- Event alanları içinde `service`, `timestamp`, `path`, `method`, `statusCode`, `requestBody`, `responseBody` bulunmalıdır.
-
-Tinker ile hızlı config kontrolü:
+Metrics Redis storage temizlemek:
 
 ```bash
-php artisan tinker --execute='dump(config("server-orchestrator.apm.store")); dump(config("server-orchestrator.apm.mongo.database"));'
+php artisan tinker --execute='app(\Prometheus\CollectorRegistry::class)->wipeStorage(); dump("Metrics temizlendi");'
 ```
 
-## 14. Sık Sorunlar
-
-### `/apm/errors` boş dönüyor
-
-Kontrol edin:
-
-- `ORCHESTRATOR_APM_ENABLED=true` mi?
-- `ORCHESTRATOR_APM_STORE` doğru mu?
-- Mongo seçildiyse `ext-mongodb` yüklü mü?
-- Redis seçildiyse Redis connection çalışıyor mu?
-- `phpredis` seçildiyse `php -m | grep -i redis` çıktı veriyor mu?
-- Gerçekten yakalanan status kodlarından biri oluştu mu?
-- Runtime restart yapıldı mı?
-
-### `process_memory_limit_bytes` public domain'de görünmüyor ama container içinde görünüyor
-
-Bu genellikle package problemi değil, routing/proxy/container ayrımıdır.
-
-Kontrol sırası:
+Raw Redis key kontrolu:
 
 ```bash
-curl -s http://127.0.0.1/metrics | grep process_memory_limit_bytes
-curl -s http://127.0.0.1:8085/metrics | grep process_memory_limit_bytes
-curl -s https://your-domain.example.com/metrics | grep process_memory_limit_bytes
+redis-cli keys "*apm:ticaret_backend:*"
+redis-cli keys "*prometheus:ticaret_backend:*"
 ```
 
-Container içinde `http://127.0.0.1/metrics`, host üzerinde port map varsa `http://127.0.0.1:8085/metrics` kullanılmalıdır.
+## 17. Public Domain, Proxy ve CORS
 
-### Dashboard PHP memory `100%` gösteriyor
+Container icinde endpoint calisiyor ama public domain calismiyorsa uc noktayi ayri test edin:
 
-Dashboard tarafında denominator olarak `process_memory_allocated_bytes` veya `process_memory_peak_bytes` kullanılıyorsa 100% görünebilir.
+```bash
+# Container icinde
+curl -i http://127.0.0.1/apm/errors?limit=5
 
-Doğru denominator `process_memory_limit_bytes` olmalıdır.
+# Container icinde Host header ile
+curl -i -H 'Host: ticaretapi.webdekolay.com' http://127.0.0.1/apm/errors?limit=5
 
-### Error Rate `0.00%` görünüyor ama Error Events dolu
+# Public domain
+curl -i https://ticaretapi.webdekolay.com/apm/errors?limit=5
+```
 
-APM error events ve request error rate aynı şey değildir.
+Yorum:
 
-- APM events: son TTL süresindeki yakalanmış 4xx/5xx kayıt listesi
-- Error Rate: dashboard'un kullandığı toplam veya canlı request oranı
+- Container icinde `200`, public domain'de `403`: paket/store degil, nginx/proxy/security katmani.
+- `curl` ile `403`: CORS degil, server istegi engelliyor.
+- Browser CORS hatasi var ama `curl` `200`: Laravel veya proxy CORS header eksik.
 
-Anlık request rate `0.0/s` ise karttaki error rate'in `0.00%` görünmesi normal olabilir.
+Nginx/proxy kontrolu:
 
-## 15. Geri Dönüş Planı
+```bash
+grep -R "ticaretapi.webdekolay.com\|apm/errors\|deny\|allow\|return 403" -n /etc/nginx /etc/nginx/sites-enabled
+```
 
-Sorun halinde önceki çalışan sürüme dönebilirsiniz:
+Laravel `config/cors.php` icin root endpointleri ekleyin:
+
+```php
+'paths' => [
+    'api/*',
+    'metrics',
+    'apm/errors',
+    '_apm/errors',
+    '__apm/errors',
+],
+
+'allowed_methods' => ['GET', 'OPTIONS'],
+
+'allowed_origins' => [
+    'https://server.aysbulut.com',
+    'https://server-orchestrator.aysbulut.com',
+],
+
+'allowed_headers' => ['*'],
+
+'supports_credentials' => false,
+```
+
+Cache temizleyin:
+
+```bash
+php artisan optimize:clear
+```
+
+Preflight test:
+
+```bash
+curl -i -X OPTIONS \
+  -H "Origin: https://server-orchestrator.aysbulut.com" \
+  -H "Access-Control-Request-Method: GET" \
+  https://ticaretapi.webdekolay.com/apm/errors
+```
+
+Beklenen header:
+
+```text
+Access-Control-Allow-Origin: https://server-orchestrator.aysbulut.com
+Access-Control-Allow-Methods: GET, OPTIONS
+```
+
+OPTIONS veya GET hala `403` ise sorun `config/cors.php` degil, proxy/security katmanidir.
+
+## 18. Geri Donus Plani
+
+Sorun halinde onceki calisan surume donun:
 
 ```bash
 composer require fogeto/laravel-server-orchestrator:1.1.9 --with-all-dependencies
 php artisan optimize:clear
-docker compose restart
+docker compose up -d --no-deps --force-recreate your-service-name
 ```
 
-Force publish yaptıysanız yedeği geri alın:
+Config publish ile dosya ezildiyse yedegi geri alin:
 
 ```bash
 cp config/server-orchestrator.php.bak config/server-orchestrator.php
 php artisan optimize:clear
 ```
 
-## Minimum Güncelleme Akışı
+## 19. Minimum Canli Guncelleme Akisi
 
 ```bash
 composer require fogeto/laravel-server-orchestrator:1.1.10 --with-all-dependencies
+php artisan vendor:publish --tag=server-orchestrator-config --force
 php artisan optimize:clear
-docker compose restart
-composer show fogeto/laravel-server-orchestrator | grep versions
-curl -s http://127.0.0.1:8085/metrics | grep -E "process_memory_(usage|allocated|peak|peak_allocated|limit)_bytes"
-curl -i http://127.0.0.1:8085/apm-test-404
-curl -s http://127.0.0.1:8085/apm/errors?limit=5
+docker compose up -d --no-deps --force-recreate your-service-name
+docker exec -ti your-container-name bash
+php artisan optimize:clear
+php artisan route:list | grep -E "metrics|apm"
+php artisan tinker --execute='dump(config("server-orchestrator.prefix")); dump(config("server-orchestrator.apm.store")); dump(config("server-orchestrator.apm.service"));'
+curl -i http://127.0.0.1/metrics
+curl -i http://127.0.0.1/codex-apm-test-404
+curl -s http://127.0.0.1/apm/errors?limit=5
 ```
 
-Bu akıştan sonra:
+Bu akistan sonra:
 
-- `/metrics` PHP/process metriklerini vermeli.
-- `/apm/errors` yeni 4xx/5xx event'ini göstermeli.
-- Mongo veya Redis store seçimi `.env` değerine göre çalışmalı.
-- Redis seçildiyse `predis/phpredis` seçimi `REDIS_CLIENT` ve `ORCHESTRATOR_REDIS_CLIENT` ile yönetilmeli.
+- `/metrics` `200 OK` ve Prometheus text format donmeli.
+- `/apm/errors` yeni 4xx/5xx eventlerini JSON array olarak donmeli.
+- `apm.store` env'deki secime gore `mongo` veya `redis` olmali.
+- `apm.service` ilgili proje adiyla ayni olmali.
+- Public domain farkli sonuc donuyorsa proxy/CORS katmani ayrica incelenmeli.
+
+## 20. Guvenlik Notu
+
+Mongo connection string, Redis sifresi, API token veya benzeri secret'lari dokumanlara, loglara veya chat'e acik yazmayin.
+
+Orneklerde her zaman su format kullanilmalidir:
+
+```env
+Logging__MongoDB__ConnectionString=mongodb://USER:PASS@HOST:27017/?authSource=admin
+```
+
+Secret yanlislikla aciga ciktiysa:
+
+1. Sifreyi rotate edin.
+2. Eski kullaniciyi devre disi birakin veya sifresini degistirin.
+3. Env degerlerini guncelleyin.
+4. Container recreate ve `php artisan optimize:clear` yapin.

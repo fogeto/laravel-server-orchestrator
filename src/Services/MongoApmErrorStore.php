@@ -222,6 +222,12 @@ class MongoApmErrorStore implements IApmErrorStore
                     continue;
                 }
 
+                if (! $this->isCompatibleTtlIndex($indexData)) {
+                    $this->dropIndex('ix_apm_ttl');
+
+                    return;
+                }
+
                 if ((int) ($indexData['expireAfterSeconds'] ?? 0) !== $ttl) {
                     $this->manager->executeCommand($this->database, $this->newCommand([
                         'collMod' => $this->collection,
@@ -236,6 +242,70 @@ class MongoApmErrorStore implements IApmErrorStore
             }
         } catch (\Throwable) {
             // Collection veya index henuz yoksa createIndexes komutu normal akisla olusturur.
+        }
+    }
+
+    /**
+     * Mongo createIndexes ayni isimli ama farkli key/options'a sahip index varken hata verir.
+     * Eski kurulumlardan kalan uyumsuz TTL index varsa drop edip ensureIndexes'in tekrar yaratmasini saglar.
+     *
+     * @param  array<string, mixed>  $indexData
+     */
+    private function isCompatibleTtlIndex(array $indexData): bool
+    {
+        if ($this->normalizeIndexKey($indexData['key'] ?? []) !== ['timestamp' => 1]) {
+            return false;
+        }
+
+        if (! array_key_exists('expireAfterSeconds', $indexData)) {
+            return false;
+        }
+
+        foreach (['partialFilterExpression', 'collation'] as $option) {
+            if (array_key_exists($option, $indexData)) {
+                return false;
+            }
+        }
+
+        foreach (['sparse', 'unique', 'hidden'] as $option) {
+            if (($indexData[$option] ?? false) === true) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function normalizeIndexKey(mixed $key): array
+    {
+        if (is_object($key)) {
+            $key = (array) $key;
+        }
+
+        if (! is_array($key)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($key as $field => $direction) {
+            $normalized[(string) $field] = (int) $direction;
+        }
+
+        return $normalized;
+    }
+
+    private function dropIndex(string $name): void
+    {
+        try {
+            $this->manager?->executeCommand($this->database, $this->newCommand([
+                'dropIndexes' => $this->collection,
+                'index' => $name,
+            ]));
+        } catch (\Throwable) {
+            // Baska bir process index'i zaten dusurmusse createIndexes normal akisla devam eder.
         }
     }
 
@@ -315,7 +385,7 @@ class MongoApmErrorStore implements IApmErrorStore
         return $this->database . '.' . $this->collection;
     }
 
-    private function newManager(string $connectionString): object
+    protected function newManager(string $connectionString): object
     {
         $class = 'MongoDB\\Driver\\Manager';
 
@@ -336,7 +406,7 @@ class MongoApmErrorStore implements IApmErrorStore
         return new $class($options);
     }
 
-    private function newCommand(array $command): object
+    protected function newCommand(array $command): object
     {
         $class = 'MongoDB\\Driver\\Command';
 

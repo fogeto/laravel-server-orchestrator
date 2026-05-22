@@ -63,8 +63,8 @@ class ApmErrorBuffer
             'id' => (string) Str::uuid(),
             'service' => $this->service,
             'timestamp' => now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
-            'path' => $data['path'] ?? '',
-            'method' => $data['method'] ?? '',
+            'path' => $this->sanitizeText((string) ($data['path'] ?? '')),
+            'method' => $this->sanitizeText((string) ($data['method'] ?? '')),
             'statusCode' => $data['statusCode'] ?? 0,
             'errorType' => $this->getErrorType($data['statusCode'] ?? 0),
             'message' => $this->truncate($data['responseBody'] ?? '', $this->maxMessageLength),
@@ -73,9 +73,9 @@ class ApmErrorBuffer
             'requestHeaders' => $this->redactHeaders($data['requestHeaders'] ?? []),
             'responseHeaders' => $this->normalizeHeaders($data['responseHeaders'] ?? []),
             'durationMs' => round((float) ($data['durationMs'] ?? 0), 2),
-            'clientIp' => $data['clientIp'] ?? 'unknown',
-            'userAgent' => $data['userAgent'] ?? '',
-            'queryString' => $data['queryString'] ?? '',
+            'clientIp' => $this->sanitizeText((string) ($data['clientIp'] ?? 'unknown')),
+            'userAgent' => $this->sanitizeText((string) ($data['userAgent'] ?? '')),
+            'queryString' => $this->sanitizeText((string) ($data['queryString'] ?? '')),
         ]);
     }
 
@@ -86,8 +86,8 @@ class ApmErrorBuffer
             'service' => $this->service,
             'timestamp' => now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
             'source' => 'outgoing',
-            'path' => $data['url'] ?? '',
-            'method' => $data['method'] ?? '',
+            'path' => $this->sanitizeText((string) ($data['url'] ?? '')),
+            'method' => $this->sanitizeText((string) ($data['method'] ?? '')),
             'statusCode' => $data['statusCode'] ?? 0,
             'errorType' => $data['errorType'] ?? $this->getErrorType($data['statusCode'] ?? 0),
             'message' => $this->truncate($data['responseBody'] ?? '', $this->maxMessageLength),
@@ -96,8 +96,8 @@ class ApmErrorBuffer
             'requestHeaders' => $this->redactHeaders($data['requestHeaders'] ?? []),
             'responseHeaders' => $this->normalizeHeaders($data['responseHeaders'] ?? []),
             'durationMs' => round((float) ($data['durationMs'] ?? 0), 2),
-            'userAgent' => $data['userAgent'] ?? '',
-            'queryString' => $data['queryString'] ?? '',
+            'userAgent' => $this->sanitizeText((string) ($data['userAgent'] ?? '')),
+            'queryString' => $this->sanitizeText((string) ($data['queryString'] ?? '')),
         ]);
     }
 
@@ -121,7 +121,7 @@ class ApmErrorBuffer
             $normalizedKey = strtolower((string) $key);
             $redacted[(string) $key] = in_array($normalizedKey, self::SENSITIVE_HEADERS, true)
                 ? '***REDACTED***'
-                : (is_array($value) ? implode(', ', $value) : (string) $value);
+                : $this->sanitizeText(is_array($value) ? implode(', ', $value) : (string) $value);
         }
 
         return $redacted;
@@ -131,7 +131,7 @@ class ApmErrorBuffer
     {
         $normalized = [];
         foreach ($headers as $key => $value) {
-            $normalized[(string) $key] = is_array($value) ? implode(', ', $value) : (string) $value;
+            $normalized[(string) $key] = $this->sanitizeText(is_array($value) ? implode(', ', $value) : (string) $value);
         }
 
         return $normalized;
@@ -139,19 +139,55 @@ class ApmErrorBuffer
 
     private function truncateBody(string $body): string
     {
+        $body = $this->sanitizeText($body);
+
         if (strlen($body) <= $this->maxBodySize) {
             return $body;
         }
 
-        return substr($body, 0, $this->maxBodySize);
+        return $this->truncateUtf8($body, $this->maxBodySize);
     }
 
     private function truncate(string $text, int $max): string
     {
+        $text = $this->sanitizeText($text);
+
         if (strlen($text) <= $max) {
             return $text;
         }
 
-        return substr($text, 0, $max);
+        return $this->truncateUtf8($text, $max);
+    }
+
+    private function sanitizeText(string $text): string
+    {
+        if ($this->isValidUtf8($text)) {
+            return $text;
+        }
+
+        return sprintf(
+            '[non-utf8 string omitted; bytes=%d; base64_prefix=%s]',
+            strlen($text),
+            substr(base64_encode(substr($text, 0, 48)), 0, 96)
+        );
+    }
+
+    private function truncateUtf8(string $text, int $maxBytes): string
+    {
+        if (function_exists('mb_strcut')) {
+            return mb_strcut($text, 0, $maxBytes, 'UTF-8');
+        }
+
+        $truncated = substr($text, 0, $maxBytes);
+        while ($truncated !== '' && ! $this->isValidUtf8($truncated)) {
+            $truncated = substr($truncated, 0, -1);
+        }
+
+        return $truncated;
+    }
+
+    private function isValidUtf8(string $text): bool
+    {
+        return $text === '' || preg_match('//u', $text) === 1;
     }
 }

@@ -21,10 +21,11 @@ final class RedisApmErrorStoreTest extends TestCase
 
         $connection = new InMemoryRedisConnection();
         $store = new RedisApmErrorStore($connection);
+        $timestamp = CarbonImmutable::now('UTC')->format('Y-m-d\TH:i:s.v\Z');
 
         $this->assertTrue($store->tryEnqueue([
             'id' => 'event-1',
-            'timestamp' => '2026-04-30T10:00:00.000Z',
+            'timestamp' => $timestamp,
             'path' => '/api/test',
             'method' => 'GET',
             'statusCode' => 404,
@@ -45,7 +46,7 @@ final class RedisApmErrorStoreTest extends TestCase
 
     public function test_it_prunes_expired_index_entries_and_trims_to_capacity(): void
     {
-        CarbonImmutable::setTestNow('2026-04-30 12:00:00');
+        $now = CarbonImmutable::now('UTC');
 
         config([
             'server-orchestrator.apm.service' => 'ikbackend',
@@ -59,21 +60,21 @@ final class RedisApmErrorStoreTest extends TestCase
 
         $store->tryEnqueue([
             'id' => 'expired',
-            'timestamp' => '2026-04-30T11:58:00.000Z',
+            'timestamp' => $now->subSeconds(120)->format('Y-m-d\TH:i:s.v\Z'),
             'path' => '/expired',
             'method' => 'GET',
             'statusCode' => 404,
         ]);
         $store->tryEnqueue([
             'id' => 'event-1',
-            'timestamp' => '2026-04-30T11:59:30.000Z',
+            'timestamp' => $now->subSeconds(30)->format('Y-m-d\TH:i:s.v\Z'),
             'path' => '/first',
             'method' => 'GET',
             'statusCode' => 404,
         ]);
         $store->tryEnqueue([
             'id' => 'event-2',
-            'timestamp' => '2026-04-30T12:00:00.000Z',
+            'timestamp' => $now->format('Y-m-d\TH:i:s.v\Z'),
             'path' => '/second',
             'method' => 'GET',
             'statusCode' => 500,
@@ -82,8 +83,6 @@ final class RedisApmErrorStoreTest extends TestCase
         $events = $store->getRecent(5);
 
         $this->assertSame(['event-2', 'event-1'], array_column($events, 'id'));
-
-        CarbonImmutable::setTestNow();
     }
 
     public function test_clear_removes_index_and_event_payloads(): void
@@ -95,10 +94,11 @@ final class RedisApmErrorStoreTest extends TestCase
 
         $connection = new InMemoryRedisConnection();
         $store = new RedisApmErrorStore($connection);
+        $timestamp = CarbonImmutable::now('UTC')->format('Y-m-d\TH:i:s.v\Z');
 
         $store->tryEnqueue([
             'id' => 'event-1',
-            'timestamp' => '2026-04-30T10:00:00.000Z',
+            'timestamp' => $timestamp,
             'path' => '/api/test',
             'method' => 'GET',
             'statusCode' => 404,
