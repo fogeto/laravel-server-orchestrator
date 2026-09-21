@@ -293,18 +293,21 @@ $prefix = 'prometheus:' . $sanitized . ':';
 
 ---
 
-## 8. InMemory Fallback
+## 8. Fail-open Metrics Storage
 
-Redis bağlantısı başarısız olursa `Prometheus\Storage\InMemory` adapter'ı kullanılır:
+Redis bağlantısı oluşturulamazsa no-op adapter kullanılır. Bağlantı oluşturulduktan
+sonraki Redis yazma hataları da fault-tolerant adapter tarafından yakalanır:
 
 ```php
 $this->app->singleton(CollectorRegistry::class, function () {
     try {
         // Redis bağlantısı + PredisAdapter
-        $adapter = new PredisAdapter($redisConnection, $prefix);
+        $adapter = new FaultTolerantAdapter(
+            new PredisAdapter($redisConnection, $prefix)
+        );
     } catch (\Throwable $e) {
-        report($e);  // Hata loglanır
-        $adapter = new InMemory();  // Fallback
+        reportSafely($e);  // Hata loglanır
+        $adapter = new NullAdapter();  // Metrik kaydı atlanır
     }
 
     return new CollectorRegistry($adapter);
@@ -312,11 +315,12 @@ $this->app->singleton(CollectorRegistry::class, function () {
 ```
 
 **Sonuçlar:**
-- Metrikler sadece mevcut PHP process'inde yaşar
-- PHP-FPM altında her istek ayrı process → her istek sıfırdan başlar
-- Counter'lar her zaman 1 gösterir, histogram'lar tek gözlem içerir
-- Uygulama çökmez ama metrikler anlamsız olur
-- Log'da hata görünür
+- Redis sağlıklıyken metrik davranışı değişmez
+- Redis yazma hatasında yalnızca ilgili metrik kaydı atlanır
+- Business request bir kez çalışır ve kendi response/exception sonucu korunur
+- İlk storage hatası process başına bir kez loglanır; log flood oluşmaz
+- Geçici Redis hatasında meta cache temizlenir ve ilk sağlıklı yazıda metadata yeniden oluşturulur
+- Redis adapter kurulamazsa no-op adapter uygulamanın boot etmesini sağlar
 
 **Önerilen aksiyon:** Redis bağlantı hatası alıyorsanız `.env`'deki Redis ayarlarını kontrol edin.
 

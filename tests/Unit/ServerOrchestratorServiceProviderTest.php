@@ -2,9 +2,12 @@
 
 namespace Fogeto\ServerOrchestrator\Tests\Unit;
 
+use Fogeto\ServerOrchestrator\Adapters\NullAdapter;
 use Fogeto\ServerOrchestrator\Providers\ServerOrchestratorServiceProvider;
 use Fogeto\ServerOrchestrator\Tests\TestCase;
+use Illuminate\Support\Facades\Redis;
 use ReflectionMethod;
+use RuntimeException;
 
 final class ServerOrchestratorServiceProviderTest extends TestCase
 {
@@ -75,6 +78,19 @@ final class ServerOrchestratorServiceProviderTest extends TestCase
         $this->callPrivateProviderMethod('configureRedisClient');
 
         $this->assertSame('predis', config('database.redis.client'));
+    }
+
+    public function test_metrics_adapter_falls_back_to_noop_when_redis_connection_cannot_be_created(): void
+    {
+        config(['server-orchestrator.metrics_storage' => 'redis']);
+        Redis::shouldReceive('connection')
+            ->once()
+            ->with('default')
+            ->andThrow(new RuntimeException('Redis is unavailable.'));
+
+        $adapter = $this->callPrivateProviderMethod('makeMetricsAdapter');
+
+        $this->assertInstanceOf(NullAdapter::class, $adapter);
     }
 
     private function callPrivateProviderMethod(string $method, array $arguments = []): mixed
