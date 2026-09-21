@@ -2,6 +2,8 @@
 
 namespace Fogeto\ServerOrchestrator\Providers;
 
+use Fogeto\ServerOrchestrator\Adapters\FaultTolerantAdapter;
+use Fogeto\ServerOrchestrator\Adapters\NullAdapter;
 use Fogeto\ServerOrchestrator\Adapters\PredisAdapter;
 use Fogeto\ServerOrchestrator\Console\Commands\MigrateFromInlineCommand;
 use Fogeto\ServerOrchestrator\Contracts\IApmErrorStore;
@@ -31,6 +33,8 @@ use Prometheus\Storage\InMemory;
 
 class ServerOrchestratorServiceProvider extends ServiceProvider
 {
+    private bool $metricsSetupErrorReported = false;
+
     public function register(): void
     {
         $this->mergeConfigFromRecursive(
@@ -74,11 +78,28 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
             $sanitized = strtolower(preg_replace('/[^a-zA-Z0-9_-]/', '_', $rawPrefix));
             $prefix = 'prometheus:' . $sanitized . ':';
 
-            return new PredisAdapter($redisConnection, $prefix, config('server-orchestrator.metrics_ttl', 86400));
+            return new FaultTolerantAdapter(
+                new PredisAdapter($redisConnection, $prefix, config('server-orchestrator.metrics_ttl', 86400))
+            );
         } catch (\Throwable $e) {
-            report($e);
+            $this->reportSafely($e);
 
-            return new InMemory();
+            return new NullAdapter();
+        }
+    }
+
+    private function reportSafely(\Throwable $e): void
+    {
+        if ($this->metricsSetupErrorReported) {
+            return;
+        }
+
+        $this->metricsSetupErrorReported = true;
+
+        try {
+            report($e);
+        } catch (\Throwable) {
+            // Metrics setup errors must never prevent the application from booting.
         }
     }
 

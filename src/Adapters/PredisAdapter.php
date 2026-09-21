@@ -90,16 +90,24 @@ LUA;
         ];
 
         // Meta bilgisi sadece process başına bir kez yazılır
-        if (! isset(self::$metaWritten[$metaKey . ':' . $data['name']])) {
+        $metaCacheKey = $metaKey . ':' . $data['name'];
+        $shouldWriteMeta = ! isset(self::$metaWritten[$metaCacheKey]);
+
+        if ($shouldWriteMeta) {
             $commands[] = ['hset', $metaKey, $data['name'], json_encode([
                 'name' => $data['name'],
                 'help' => $data['help'],
                 'labelNames' => $data['labelNames'],
             ])];
-            self::$metaWritten[$metaKey . ':' . $data['name']] = true;
         }
 
-        $this->executePipeline($commands, $key, $metaKey);
+        $this->executePipelineAndRememberMeta(
+            $commands,
+            $key,
+            $metaKey,
+            $metaCacheKey,
+            $shouldWriteMeta
+        );
     }
 
     public function updateCounter(array $data): void
@@ -112,16 +120,24 @@ LUA;
             ['hincrbyfloat', $key, $labelKey, $data['value']],
         ];
 
-        if (! isset(self::$metaWritten[$metaKey . ':' . $data['name']])) {
+        $metaCacheKey = $metaKey . ':' . $data['name'];
+        $shouldWriteMeta = ! isset(self::$metaWritten[$metaCacheKey]);
+
+        if ($shouldWriteMeta) {
             $commands[] = ['hset', $metaKey, $data['name'], json_encode([
                 'name' => $data['name'],
                 'help' => $data['help'],
                 'labelNames' => $data['labelNames'],
             ])];
-            self::$metaWritten[$metaKey . ':' . $data['name']] = true;
         }
 
-        $this->executePipeline($commands, $key, $metaKey);
+        $this->executePipelineAndRememberMeta(
+            $commands,
+            $key,
+            $metaKey,
+            $metaCacheKey,
+            $shouldWriteMeta
+        );
     }
 
     public function updateHistogram(array $data): void
@@ -142,17 +158,25 @@ LUA;
             }
         }
 
-        if (! isset(self::$metaWritten[$metaKey . ':' . $data['name']])) {
+        $metaCacheKey = $metaKey . ':' . $data['name'];
+        $shouldWriteMeta = ! isset(self::$metaWritten[$metaCacheKey]);
+
+        if ($shouldWriteMeta) {
             $commands[] = ['hset', $metaKey, $data['name'], json_encode([
                 'name' => $data['name'],
                 'help' => $data['help'],
                 'labelNames' => $data['labelNames'],
                 'buckets' => $data['buckets'],
             ])];
-            self::$metaWritten[$metaKey . ':' . $data['name']] = true;
         }
 
-        $this->executePipeline($commands, $key, $metaKey);
+        $this->executePipelineAndRememberMeta(
+            $commands,
+            $key,
+            $metaKey,
+            $metaCacheKey,
+            $shouldWriteMeta
+        );
     }
 
     public function updateSummary(array $data): void
@@ -385,6 +409,28 @@ LUA;
                 }
             }
         });
+    }
+
+    private function executePipelineAndRememberMeta(
+        array $commands,
+        string $key,
+        string $metaKey,
+        string $metaCacheKey,
+        bool $shouldWriteMeta
+    ): void {
+        try {
+            $this->executePipeline($commands, $key, $metaKey);
+        } catch (\Throwable $e) {
+            // Redis may have restarted and lost its in-memory data. Force the
+            // next successful write to recreate the metric metadata as well.
+            unset(self::$metaWritten[$metaCacheKey]);
+
+            throw $e;
+        }
+
+        if ($shouldWriteMeta) {
+            self::$metaWritten[$metaCacheKey] = true;
+        }
     }
 
     /**

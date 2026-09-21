@@ -25,6 +25,7 @@ Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uyg
 
 ### Fixed
 - Büyük upload ve multipart isteklerde APM capture kaynaklı gereksiz body kopyalama önlendi
+- Redis metrics adapter oluşturma ve yazma hatalarının business request akışını kesmesi önlendi
 
 ## [1.1.0] - 2026-04-16
 
