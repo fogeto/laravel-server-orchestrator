@@ -13,7 +13,7 @@ class SqlQueryMetricsRecorder
 
     private ?Counter $errorCounter = null;
 
-    private bool $errorReported = false;
+    private MonitoringErrorReporter $reporter;
 
     /**
      * @var array<string, bool>
@@ -36,8 +36,9 @@ class SqlQueryMetricsRecorder
      */
     private array $buckets;
 
-    public function __construct(private CollectorRegistry $registry)
+    public function __construct(private CollectorRegistry $registry, ?MonitoringErrorReporter $reporter = null)
     {
+        $this->reporter = $reporter ?? app(MonitoringErrorReporter::class);
         $config = config('server-orchestrator.sql_metrics', []);
 
         $this->includeQueryLabel = (bool) ($config['include_query_label'] ?? true);
@@ -187,11 +188,6 @@ class SqlQueryMetricsRecorder
 
     private function reportOnce(\Throwable $e): void
     {
-        if ($this->errorReported) {
-            return;
-        }
-
-        report($e);
-        $this->errorReported = true;
+        $this->reporter->report($e);
     }
 }

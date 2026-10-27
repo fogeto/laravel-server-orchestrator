@@ -86,7 +86,7 @@ LUA;
         $labelKey = $this->encodeLabelValues($data['labelValues']);
 
         $commands = [
-            ['hset', $key, $labelKey, $data['value']],
+            [($data['command'] ?? Adapter::COMMAND_SET) === Adapter::COMMAND_SET ? 'hset' : 'hincrbyfloat', $key, $labelKey, $data['value']],
         ];
 
         // Meta bilgisi sadece process başına bir kez yazılır
@@ -196,6 +196,16 @@ LUA;
      * @return MetricFamilySamples[]
      */
     public function collect(bool $sortMetrics = true): array
+    {
+        try {
+            return $this->collectFromStorage($sortMetrics);
+        } catch (\Throwable $e) {
+            self::$metaWritten = [];
+            throw $e;
+        }
+    }
+
+    private function collectFromStorage(bool $sortMetrics): array
     {
         // Phase 1: Tüm meta key'lerini tek pipeline'da oku (1 round-trip)
         $metaResults = $this->redis->pipeline(function ($pipe) {
@@ -423,7 +433,7 @@ LUA;
         } catch (\Throwable $e) {
             // Redis may have restarted and lost its in-memory data. Force the
             // next successful write to recreate the metric metadata as well.
-            unset(self::$metaWritten[$metaCacheKey]);
+            self::$metaWritten = [];
 
             throw $e;
         }

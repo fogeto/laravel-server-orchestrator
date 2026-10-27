@@ -7,22 +7,32 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Fogeto\ServerOrchestrator\Services\MonitoringErrorReporter;
 use Prometheus\CollectorRegistry;
 use Prometheus\RenderTextFormat;
 
 class MetricsController extends Controller
 {
-    public function __construct(private CollectorRegistry $registry) {}
+    public function __construct(private ?CollectorRegistry $registry = null) {}
 
     /**
      * Prometheus metrikleri render et.
      */
     public function index(Request $request): Response
     {
-        $this->collectSystemMetrics();
-
-        $renderer = new RenderTextFormat();
-        $result = $renderer->render($this->registry->getMetricFamilySamples());
+        try {
+            $this->registry ??= app(CollectorRegistry::class);
+            $this->collectSystemMetrics();
+            $renderer = new RenderTextFormat();
+            $result = $renderer->render($this->registry->getMetricFamilySamples());
+        } catch (\Throwable $e) {
+            app(MonitoringErrorReporter::class)->report($e);
+            return response('Metrics temporarily unavailable.', 503, [
+                'Content-Type' => 'text/plain; charset=UTF-8',
+                'Cache-Control' => 'no-store',
+                'Retry-After' => '5',
+            ]);
+        }
 
         $headers = [
             'Content-Type' => RenderTextFormat::MIME_TYPE,
@@ -44,6 +54,7 @@ class MetricsController extends Controller
      */
     public function wipe(): JsonResponse
     {
+        $this->registry ??= app(CollectorRegistry::class);
         $this->registry->wipeStorage();
 
         return response()->json([

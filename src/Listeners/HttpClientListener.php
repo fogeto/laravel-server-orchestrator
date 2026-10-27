@@ -3,6 +3,7 @@
 namespace Fogeto\ServerOrchestrator\Listeners;
 
 use Fogeto\ServerOrchestrator\Services\ApmErrorBuffer;
+use Fogeto\ServerOrchestrator\Services\MonitoringErrorReporter;
 use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Http\Client\Events\ResponseReceived;
@@ -50,7 +51,12 @@ class HttpClientListener
     /**
      * İlk hata loglandı mı? Flood önleme.
      */
-    private static bool $errorReported = false;
+    private MonitoringErrorReporter $reporter;
+
+    public function __construct(?MonitoringErrorReporter $reporter = null)
+    {
+        $this->reporter = $reporter ?? app(MonitoringErrorReporter::class);
+    }
 
     /**
      * RequestSending event — istek gönderilmeden önce zamanı kaydet.
@@ -331,11 +337,7 @@ class HttpClientListener
                 $errorCounter->inc($labelValues);
             }
         } catch (\Throwable $e) {
-            // İlk hatayı logla — flood önlemek için sadece bir kez
-            if (! self::$errorReported) {
-                report($e);
-                self::$errorReported = true;
-            }
+            $this->reporter->report($e);
         }
     }
 }

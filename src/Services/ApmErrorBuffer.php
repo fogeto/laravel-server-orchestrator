@@ -3,6 +3,7 @@
 namespace Fogeto\ServerOrchestrator\Services;
 
 use Fogeto\ServerOrchestrator\Contracts\IApmErrorStore;
+use Fogeto\ServerOrchestrator\Contracts\ApmStoreAvailability;
 use Illuminate\Support\Str;
 
 class ApmErrorBuffer
@@ -20,14 +21,6 @@ class ApmErrorBuffer
 
     private const CAPTURED_STATUS_CODES = [400, 401, 403, 404, 429, 500, 502, 503];
 
-    private const SENSITIVE_HEADERS = [
-        'authorization',
-        'cookie',
-        'x-api-key',
-        'x-csrf-token',
-        'set-cookie',
-    ];
-
     private int $maxBodySize;
 
     private int $maxMessageLength;
@@ -35,9 +28,11 @@ class ApmErrorBuffer
     private int $defaultLimit;
 
     private string $service;
+    private ApmPayloadSanitizer $sanitizer;
 
     public function __construct(private IApmErrorStore $store)
     {
+        $this->sanitizer = new ApmPayloadSanitizer((array) config('server-orchestrator.apm.sensitive_fields', []));
         $this->maxBodySize = (int) config('server-orchestrator.apm.max_body_size', 32768);
         $this->maxMessageLength = (int) config('server-orchestrator.apm.max_message_length', 200);
         $this->defaultLimit = (int) config('server-orchestrator.apm.default_limit', 200);
@@ -59,7 +54,7 @@ class ApmErrorBuffer
 
     public function captureIncoming(array $data): void
     {
-        $this->store->tryEnqueue([
+        $this->store->tryEnqueue($this->sanitizeEvent([
             'id' => (string) Str::uuid(),
             'service' => $this->service,
             'timestamp' => now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
@@ -67,21 +62,21 @@ class ApmErrorBuffer
             'method' => $this->sanitizeText((string) ($data['method'] ?? '')),
             'statusCode' => $data['statusCode'] ?? 0,
             'errorType' => $this->getErrorType($data['statusCode'] ?? 0),
-            'message' => $this->truncate($data['responseBody'] ?? '', $this->maxMessageLength),
-            'requestBody' => $this->truncateBody($data['requestBody'] ?? ''),
-            'responseBody' => $this->truncateBody($data['responseBody'] ?? ''),
-            'requestHeaders' => $this->redactHeaders($data['requestHeaders'] ?? []),
-            'responseHeaders' => $this->normalizeHeaders($data['responseHeaders'] ?? []),
+            'message' => $data['responseBody'] ?? '',
+            'requestBody' => $data['requestBody'] ?? '',
+            'responseBody' => $data['responseBody'] ?? '',
+            'requestHeaders' => $data['requestHeaders'] ?? [],
+            'responseHeaders' => $data['responseHeaders'] ?? [],
             'durationMs' => round((float) ($data['durationMs'] ?? 0), 2),
             'clientIp' => $this->sanitizeText((string) ($data['clientIp'] ?? 'unknown')),
             'userAgent' => $this->sanitizeText((string) ($data['userAgent'] ?? '')),
             'queryString' => $this->sanitizeText((string) ($data['queryString'] ?? '')),
-        ]);
+        ]));
     }
 
     public function captureOutgoing(array $data): void
     {
-        $this->store->tryEnqueue([
+        $this->store->tryEnqueue($this->sanitizeEvent([
             'id' => (string) Str::uuid(),
             'service' => $this->service,
             'timestamp' => now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
@@ -90,15 +85,15 @@ class ApmErrorBuffer
             'method' => $this->sanitizeText((string) ($data['method'] ?? '')),
             'statusCode' => $data['statusCode'] ?? 0,
             'errorType' => $data['errorType'] ?? $this->getErrorType($data['statusCode'] ?? 0),
-            'message' => $this->truncate($data['responseBody'] ?? '', $this->maxMessageLength),
-            'requestBody' => $this->truncateBody($data['requestBody'] ?? ''),
-            'responseBody' => $this->truncateBody($data['responseBody'] ?? ''),
-            'requestHeaders' => $this->redactHeaders($data['requestHeaders'] ?? []),
-            'responseHeaders' => $this->normalizeHeaders($data['responseHeaders'] ?? []),
+            'message' => $data['responseBody'] ?? '',
+            'requestBody' => $data['requestBody'] ?? '',
+            'responseBody' => $data['responseBody'] ?? '',
+            'requestHeaders' => $data['requestHeaders'] ?? [],
+            'responseHeaders' => $data['responseHeaders'] ?? [],
             'durationMs' => round((float) ($data['durationMs'] ?? 0), 2),
             'userAgent' => $this->sanitizeText((string) ($data['userAgent'] ?? '')),
             'queryString' => $this->sanitizeText((string) ($data['queryString'] ?? '')),
-        ]);
+        ]));
     }
 
     /**
@@ -106,35 +101,26 @@ class ApmErrorBuffer
      */
     public function getAll(?int $limit = null): array
     {
-        return $this->store->getRecent($limit ?? $this->defaultLimit);
+        return array_map(fn (array $event) => $this->sanitizeEvent($event), $this->store->getRecent($limit ?? $this->defaultLimit));
+    }
+
+    public function isAvailable(): bool
+    {
+        return ! ($this->store instanceof ApmStoreAvailability) || $this->store->isAvailable();
+    }
+
+    private function sanitizeEvent(array $event): array
+    {
+        $event = $this->sanitizer->event($event);
+        $event['requestBody'] = $this->truncateBody($event['requestBody']);
+        $event['responseBody'] = $this->truncateBody($event['responseBody']);
+        $event['message'] = $this->truncate($event['message'], $this->maxMessageLength);
+        return $event;
     }
 
     public function clear(): void
     {
         $this->store->clear();
-    }
-
-    private function redactHeaders(array $headers): array
-    {
-        $redacted = [];
-        foreach ($headers as $key => $value) {
-            $normalizedKey = strtolower((string) $key);
-            $redacted[(string) $key] = in_array($normalizedKey, self::SENSITIVE_HEADERS, true)
-                ? '***REDACTED***'
-                : $this->sanitizeText(is_array($value) ? implode(', ', $value) : (string) $value);
-        }
-
-        return $redacted;
-    }
-
-    private function normalizeHeaders(array $headers): array
-    {
-        $normalized = [];
-        foreach ($headers as $key => $value) {
-            $normalized[(string) $key] = $this->sanitizeText(is_array($value) ? implode(', ', $value) : (string) $value);
-        }
-
-        return $normalized;
     }
 
     private function truncateBody(string $body): string
@@ -165,11 +151,7 @@ class ApmErrorBuffer
             return $text;
         }
 
-        return sprintf(
-            '[non-utf8 string omitted; bytes=%d; base64_prefix=%s]',
-            strlen($text),
-            substr(base64_encode(substr($text, 0, 48)), 0, 96)
-        );
+        return '[non-utf8 text omitted]';
     }
 
     private function truncateUtf8(string $text, int $maxBytes): string

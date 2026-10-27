@@ -96,7 +96,7 @@ final class MongoApmErrorStoreTest extends TestCase
     {
         $reflection = new \ReflectionClass(MongoApmErrorStore::class);
 
-        foreach (['indexesEnsured', 'errorReported'] as $propertyName) {
+        foreach (['indexesEnsured'] as $propertyName) {
             $property = $reflection->getProperty($propertyName);
             $property->setAccessible(true);
             $property->setValue(null, false);

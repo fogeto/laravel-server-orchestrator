@@ -3,6 +3,7 @@
 namespace Fogeto\ServerOrchestrator\Http\Controllers;
 
 use Fogeto\ServerOrchestrator\Services\ApmErrorBuffer;
+use Fogeto\ServerOrchestrator\Services\MonitoringErrorReporter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -15,7 +16,7 @@ use Illuminate\Routing\Controller;
  */
 class ApmController extends Controller
 {
-    public function __construct(private ApmErrorBuffer $buffer) {}
+    public function __construct(private ?ApmErrorBuffer $buffer = null) {}
 
     /**
      * Tüm APM hata event'lerini getir.
@@ -27,11 +28,20 @@ class ApmController extends Controller
         $requestedLimit = (int) $request->query('limit', $defaultLimit);
         $limit = min(max(1, $requestedLimit), max(1, $maxLimit));
 
-        $errors = array_values(array_filter($this->buffer->getAll($limit), static function (array $event): bool {
-            return ! isset($event['source']) || $event['source'] === 'incoming';
-        }));
+        try {
+            $this->buffer ??= app(ApmErrorBuffer::class);
+            $errors = array_values(array_filter($this->buffer->getAll($limit), static function (array $event): bool {
+                return ! isset($event['source']) || $event['source'] === 'incoming';
+            }));
+            if (! $this->buffer->isAvailable()) {
+                return response()->json(['message' => 'APM storage temporarily unavailable.'], 503, ['Cache-Control' => 'no-store']);
+            }
+        } catch (\Throwable $e) {
+            app(MonitoringErrorReporter::class)->report($e);
+            return response()->json(['message' => 'APM storage temporarily unavailable.'], 503, ['Cache-Control' => 'no-store']);
+        }
 
-        return response()->json($errors, 200, [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return response()->json($errors, 200, ['Cache-Control' => 'no-store'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
     /**
@@ -39,6 +49,7 @@ class ApmController extends Controller
      */
     public function clear(): JsonResponse
     {
+        $this->buffer ??= app(ApmErrorBuffer::class);
         $this->buffer->clear();
 
         return response()->json([
