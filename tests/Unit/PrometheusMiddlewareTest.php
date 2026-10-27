@@ -33,9 +33,9 @@ final class PrometheusMiddlewareTest extends TestCase
         $this->assertSame(202, $response->getStatusCode());
         $this->assertSame('business-result', $response->getContent());
         $this->assertSame('preserved', $response->headers->get('X-Business-Result'));
-        $this->assertSame(2, $storage->gaugeWrites);
-        $this->assertSame(1, $storage->histogramWrites);
-        $this->assertSame(1, $storage->counterWrites);
+        $this->assertSame(1, $storage->gaugeWrites);
+        $this->assertSame(0, $storage->histogramWrites);
+        $this->assertSame(0, $storage->counterWrites);
     }
 
     public function test_storage_failure_does_not_replace_the_business_exception(): void
@@ -60,7 +60,7 @@ final class PrometheusMiddlewareTest extends TestCase
         }
 
         $this->assertSame(1, $calls);
-        $this->assertSame(2, $storage->gaugeWrites);
+        $this->assertSame(1, $storage->gaugeWrites);
         $this->assertSame(0, $storage->histogramWrites);
         $this->assertSame(0, $storage->counterWrites);
     }

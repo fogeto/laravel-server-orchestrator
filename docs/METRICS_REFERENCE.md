@@ -163,13 +163,13 @@ Davranış:
 
 - JSON array döner.
 - `?limit=N` destekler. Varsayılan `200`, üst sınır `500`.
-- Paket içinde IP whitelist uygulanmaz; erişim gerekiyorsa proxy/firewall/auth katmanında kısıtlanmalıdır.
+- Mevcut route/APM middleware'lerine ek olarak authenticated user ve servis geneli Gate yetkisi gerekir; anonim 401, yetkisiz 403 döner.
 - Varsayılan listede sadece incoming event'ler görünür.
 - `ORCHESTRATOR_APM_STORE=mongo` ise event'ler MongoDB `ApmErrors` collection'ında tutulur.
 - `ORCHESTRATOR_APM_STORE=redis` ise event'ler Redis sorted set + TTL'li event key'lerinde tutulur.
 - TTL süresi varsayılan `86400` saniyedir, yani 1 gün.
 - Event'lere `service` alanı yazılır; Mongo store varsayılan olarak sadece kendi service kayıtlarını okur.
-- Seçilen store için gerekli extension/config yoksa persistence sessizce devre dışı kalır ve endpoint boş array döner.
+- Seçilen store okunamıyor veya gerekli extension/config yoksa yetkili endpoint isteği 503 döner; boş 200 ile arıza gizlenmez.
 - `Content-Length > 5MB` veya `multipart/form-data` isteklerde body capture yapılmaz.
 
 ## Storage notu

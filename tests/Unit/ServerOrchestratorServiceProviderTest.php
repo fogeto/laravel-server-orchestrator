@@ -2,7 +2,9 @@
 
 namespace Fogeto\ServerOrchestrator\Tests\Unit;
 
-use Fogeto\ServerOrchestrator\Adapters\NullAdapter;
+use Fogeto\ServerOrchestrator\Adapters\FaultTolerantAdapter;
+use Fogeto\ServerOrchestrator\Exceptions\MetricsStorageUnavailable;
+use Prometheus\CollectorRegistry;
 use Fogeto\ServerOrchestrator\Providers\ServerOrchestratorServiceProvider;
 use Fogeto\ServerOrchestrator\Tests\TestCase;
 use Illuminate\Support\Facades\Redis;
@@ -80,7 +82,7 @@ final class ServerOrchestratorServiceProviderTest extends TestCase
         $this->assertSame('predis', config('database.redis.client'));
     }
 
-    public function test_metrics_adapter_falls_back_to_noop_when_redis_connection_cannot_be_created(): void
+    public function test_metrics_adapter_isolates_failure_when_redis_connection_cannot_be_created(): void
     {
         config(['server-orchestrator.metrics_storage' => 'redis']);
         Redis::shouldReceive('connection')
@@ -90,7 +92,10 @@ final class ServerOrchestratorServiceProviderTest extends TestCase
 
         $adapter = $this->callPrivateProviderMethod('makeMetricsAdapter');
 
-        $this->assertInstanceOf(NullAdapter::class, $adapter);
+        $registry = new CollectorRegistry($adapter);
+        $this->assertInstanceOf(FaultTolerantAdapter::class, $adapter);
+        $this->expectException(MetricsStorageUnavailable::class);
+        $registry->getMetricFamilySamples();
     }
 
     private function callPrivateProviderMethod(string $method, array $arguments = []): mixed

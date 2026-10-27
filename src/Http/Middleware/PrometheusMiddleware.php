@@ -3,13 +3,14 @@
 namespace Fogeto\ServerOrchestrator\Http\Middleware;
 
 use Closure;
+use Fogeto\ServerOrchestrator\Services\MonitoringErrorReporter;
 use Illuminate\Http\Request;
 use Prometheus\CollectorRegistry;
 use Symfony\Component\HttpFoundation\Response;
 
 class PrometheusMiddleware
 {
-    public function __construct(private CollectorRegistry $registry) {}
+    public function __construct(private ?CollectorRegistry $registry = null) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -19,51 +20,67 @@ class PrometheusMiddleware
         }
 
         $method = $request->method();
-        $endpoint = $this->resolveEndpoint($request);
-        [$controller, $action] = $this->resolveControllerAction($request);
-        $inProgressLabels = [$method, $controller, $action, $endpoint];
+        $endpoint = $controller = $action = '';
+        $inProgressLabels = [];
+        $inProgressGauge = null;
 
-        $inProgressGauge = $this->registry->getOrRegisterGauge(
-            'http',
-            'requests_in_progress',
-            'The number of HTTP requests currently in progress in the Laravel application.',
-            ['method', 'controller', 'action', 'endpoint']
-        );
-        $inProgressGauge->inc($inProgressLabels);
+        try {
+            $this->registry ??= app(CollectorRegistry::class);
+            $endpoint = $this->resolveEndpoint($request);
+            [$controller, $action] = $this->resolveControllerAction($request);
+            $inProgressLabels = [$method, $controller, $action, $endpoint];
+            $inProgressGauge = $this->registry->getOrRegisterGauge(
+                'http',
+                'requests_in_progress',
+                'The number of HTTP requests currently in progress in the Laravel application.',
+                ['method', 'controller', 'action', 'endpoint']
+            );
+            $inProgressGauge->inc($inProgressLabels);
+        } catch (\Throwable $e) {
+            app(MonitoringErrorReporter::class)->report($e);
+        }
 
         $start = microtime(true);
 
         try {
             $response = $next($request);
         } finally {
-            $inProgressGauge->dec($inProgressLabels);
+            try {
+                $inProgressGauge?->dec($inProgressLabels);
+            } catch (\Throwable $e) {
+                app(MonitoringErrorReporter::class)->report($e);
+            }
         }
 
-        $duration = microtime(true) - $start;
-        $code = (string) $response->getStatusCode();
+        if ($this->registry === null) {
+            return $response;
+        }
 
-        $buckets = config('server-orchestrator.histogram_buckets', [
-            0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128,
-            0.256, 0.512, 1.024, 2.048, 4.096, 8.192, 16.384, 32.768,
-        ]);
-
-        // Request duration histogram
-        $histogram = $this->registry->getOrRegisterHistogram(
-            'http',
-            'request_duration_seconds',
-            'The duration of HTTP requests processed by the Laravel application.',
-            ['code', 'method', 'controller', 'action', 'endpoint'],
-            $buckets
-        );
-        $histogram->observe($duration, [$code, $method, $controller, $action, $endpoint]);
-
-        $receivedCounter = $this->registry->getOrRegisterCounter(
-            'http',
-            'requests_received_total',
-            'The total number of HTTP requests processed by the Laravel application.',
-            ['code', 'method', 'controller', 'action', 'endpoint']
-        );
-        $receivedCounter->inc([$code, $method, $controller, $action, $endpoint]);
+        try {
+            $duration = microtime(true) - $start;
+            $code = (string) $response->getStatusCode();
+            $buckets = config('server-orchestrator.histogram_buckets', [
+                0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128,
+                0.256, 0.512, 1.024, 2.048, 4.096, 8.192, 16.384, 32.768,
+            ]);
+            $histogram = $this->registry->getOrRegisterHistogram(
+                'http',
+                'request_duration_seconds',
+                'The duration of HTTP requests processed by the Laravel application.',
+                ['code', 'method', 'controller', 'action', 'endpoint'],
+                $buckets
+            );
+            $histogram->observe($duration, [$code, $method, $controller, $action, $endpoint]);
+            $receivedCounter = $this->registry->getOrRegisterCounter(
+                'http',
+                'requests_received_total',
+                'The total number of HTTP requests processed by the Laravel application.',
+                ['code', 'method', 'controller', 'action', 'endpoint']
+            );
+            $receivedCounter->inc([$code, $method, $controller, $action, $endpoint]);
+        } catch (\Throwable $e) {
+            app(MonitoringErrorReporter::class)->report($e);
+        }
 
         return $response;
     }

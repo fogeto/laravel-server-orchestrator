@@ -23,8 +23,8 @@ final class ApmErrorBufferTest extends TestCase
             'path' => '/api/test',
             'method' => 'POST',
             'statusCode' => 500,
-            'requestBody' => '123456789012345',
-            'responseBody' => 'internal-server-error',
+            'requestBody' => '{"text":"123456789012345"}',
+            'responseBody' => '{"error":"internal-server-error"}',
             'requestHeaders' => [
                 'authorization' => 'Bearer secret',
                 'x-request-id' => 'request-1',
@@ -42,9 +42,9 @@ final class ApmErrorBufferTest extends TestCase
         $this->assertSame('/api/test', $event['path']);
         $this->assertSame(500, $event['statusCode']);
         $this->assertSame('Internal Server Error', $event['errorType']);
-        $this->assertSame('intern', $event['message']);
-        $this->assertSame('1234567890', $event['requestBody']);
-        $this->assertSame('internal-s', $event['responseBody']);
+        $this->assertSame('{"erro', $event['message']);
+        $this->assertSame('{"text":"1', $event['requestBody']);
+        $this->assertSame('{"error":"', $event['responseBody']);
         $this->assertSame('***REDACTED***', $event['requestHeaders']['authorization']);
         $this->assertSame('request-1', $event['requestHeaders']['x-request-id']);
         $this->assertSame(12.35, $event['durationMs']);
@@ -76,18 +76,18 @@ final class ApmErrorBufferTest extends TestCase
 
         $event = $store->events[0];
 
-        $this->assertStringStartsWith('[non-utf8 string omitted;', $event['requestBody']);
-        $this->assertStringContainsString('base64_prefix=', $event['requestBody']);
+        $this->assertSame('[non-utf8 body omitted]', $event['requestBody']);
+        $this->assertStringNotContainsString('base64_prefix=', $event['requestBody']);
         $this->assertSame(1, preg_match('//u', $event['requestBody']));
-        $this->assertSame('not found', $event['responseBody']);
+        $this->assertSame('[unstructured body omitted]', $event['responseBody']);
     }
 
     public function test_truncation_keeps_multibyte_utf8_valid(): void
     {
         config([
             'server-orchestrator.apm.service' => 'ikbackend',
-            'server-orchestrator.apm.max_body_size' => 5,
-            'server-orchestrator.apm.max_message_length' => 5,
+            'server-orchestrator.apm.max_body_size' => 12,
+            'server-orchestrator.apm.max_message_length' => 12,
         ]);
 
         $store = new FakeApmErrorStore();
@@ -98,16 +98,16 @@ final class ApmErrorBufferTest extends TestCase
             'path' => '/utf8',
             'method' => 'GET',
             'statusCode' => 500,
-            'requestBody' => $threeTurkishChars,
-            'responseBody' => $threeTurkishChars,
+            'requestBody' => json_encode(['text' => $threeTurkishChars], JSON_UNESCAPED_UNICODE),
+            'responseBody' => json_encode(['text' => $threeTurkishChars], JSON_UNESCAPED_UNICODE),
             'requestHeaders' => [],
             'responseHeaders' => [],
         ]);
 
         $event = $store->events[0];
 
-        $this->assertSame(hex2bin('c3a7c3a7'), $event['requestBody']);
-        $this->assertSame(hex2bin('c3a7c3a7'), $event['responseBody']);
+        $this->assertSame('{"text":"' . hex2bin('c3a7'), $event['requestBody']);
+        $this->assertSame('{"text":"' . hex2bin('c3a7'), $event['responseBody']);
         $this->assertSame(1, preg_match('//u', $event['requestBody']));
         $this->assertSame(1, preg_match('//u', $event['responseBody']));
     }

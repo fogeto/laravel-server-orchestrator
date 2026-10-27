@@ -17,9 +17,9 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ApmErrorCaptureMiddleware
 {
-    private ApmErrorBuffer $buffer;
+    private ?ApmErrorBuffer $buffer;
 
-    public function __construct(ApmErrorBuffer $buffer)
+    public function __construct(?ApmErrorBuffer $buffer = null)
     {
         $this->buffer = $buffer;
     }
@@ -40,11 +40,14 @@ class ApmErrorCaptureMiddleware
 
         $statusCode = $response->getStatusCode();
 
-        // Sadece belirli status code'ları yakala
-        if ($this->buffer->shouldCapture($statusCode)) {
-            $duration = (microtime(true) - $start) * 1000; // ms
-
-            $this->captureError($request, $response, $duration);
+        try {
+            $this->buffer ??= app(ApmErrorBuffer::class);
+            if ($this->buffer->shouldCapture($statusCode)) {
+                $duration = (microtime(true) - $start) * 1000;
+                $this->captureError($request, $response, $duration);
+            }
+        } catch (\Throwable $e) {
+            app(\Fogeto\ServerOrchestrator\Services\MonitoringErrorReporter::class)->report($e);
         }
 
         return $response;

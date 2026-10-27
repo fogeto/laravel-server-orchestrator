@@ -22,7 +22,7 @@ final class FaultTolerantAdapterTest extends TestCase
     public function test_it_skips_all_metric_writes_when_storage_is_unavailable(): void
     {
         $storage = new FailingMetricsAdapter();
-        $adapter = new FaultTolerantAdapter($storage);
+        $adapter = new FaultTolerantAdapter($storage, 0.0);
 
         $adapter->updateGauge([]);
         $adapter->updateCounter([]);

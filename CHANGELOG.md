@@ -5,6 +5,17 @@ Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uyg
 
 ## [Unreleased]
 
+### Security
+- APM hata feed'leri mevcut middleware'lere ek olarak authenticated user ve servis geneli Gate yetkisi gerektirir.
+- Yeni ve eski APM event'lerinde body/query/header secret'lari maskelenir; binary ve yapisal olmayan body'ler tutulmaz.
+
+### Fixed
+- Metrics okuma/kurulum hatalari kontrollu 503 doner; bos basarili scrape ile ariza gizlenmez.
+- SQL, HTTP client ve APM raporlamasinda ikinci exception ve recursive reporting izole edildi.
+- Redis yazmalarinda kisa cooldown ve kurulum hatasindan sonra process icinde toparlanma eklendi.
+- Redis gauge increment/decrement islemleri SET yerine dogru artis/azalis komutlarini kullanir.
+- Monitoring dependency resolution hatalarinda business response/exception ve tek calisma garantisi korunur.
+
 ### Added
 - APM persistence store secimi eklendi: `ORCHESTRATOR_APM_STORE=mongo|redis`
 - Redis APM persistence store eklendi (`RedisApmErrorStore`)
@@ -26,6 +37,20 @@ Format [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) standardına uyg
 ### Fixed
 - Büyük upload ve multipart isteklerde APM capture kaynaklı gereksiz body kopyalama önlendi
 - Redis metrics adapter oluşturma ve yazma hatalarının business request akışını kesmesi önlendi
+
+## [1.1.13] - 2026-10-27
+
+### Security
+- APM feed erisimi authenticated user, mevcut uygulama middleware'leri ve servis geneli Gate ile sinirlandirildi.
+- Yeni/eski APM event'lerinde credential, token, body/query ve iki yonlu header maskelemesi eklendi.
+
+### Fixed
+- Metrics ve APM feed storage arizalari kontrollu 503 doner.
+- Monitoring dependency resolution ve recursive/throwing reporting business sonucunu degistirmez.
+- Redis metrik yazmalarina cooldown ve kurulum hatasi sonrasi toparlanma eklendi.
+- Redis gauge artis/azalis hesabi duzeltildi.
+
+Gecis/config notlari: [UPGRADE_1.1.13.md](docs/UPGRADE_1.1.13.md).
 
 ## [1.1.0] - 2026-04-16
 

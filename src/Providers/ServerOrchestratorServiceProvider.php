@@ -9,12 +9,16 @@ use Fogeto\ServerOrchestrator\Console\Commands\MigrateFromInlineCommand;
 use Fogeto\ServerOrchestrator\Contracts\IApmErrorStore;
 use Fogeto\ServerOrchestrator\Http\Middleware\ApmErrorCaptureMiddleware;
 use Fogeto\ServerOrchestrator\Http\Middleware\PrometheusMiddleware;
+use Fogeto\ServerOrchestrator\Http\Middleware\AuthorizeApmAccess;
 use Fogeto\ServerOrchestrator\Listeners\HttpClientListener;
 use Fogeto\ServerOrchestrator\Services\ApmErrorBuffer;
 use Fogeto\ServerOrchestrator\Services\MongoApmErrorStore;
 use Fogeto\ServerOrchestrator\Services\NullApmErrorStore;
 use Fogeto\ServerOrchestrator\Services\RedisApmErrorStore;
 use Fogeto\ServerOrchestrator\Services\SqlQueryMetricsRecorder;
+use Fogeto\ServerOrchestrator\Services\MonitoringErrorReporter;
+use Fogeto\ServerOrchestrator\Http\Controllers\MetricsController;
+use Fogeto\ServerOrchestrator\Http\Controllers\ApmController;
 use Illuminate\Contracts\Debug\ExceptionHandler as ExceptionHandlerContract;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\Events\QueryExecuted;
@@ -33,7 +37,7 @@ use Prometheus\Storage\InMemory;
 
 class ServerOrchestratorServiceProvider extends ServiceProvider
 {
-    private bool $metricsSetupErrorReported = false;
+    private ?object $sqlExceptionHandler = null;
 
     public function register(): void
     {
@@ -48,6 +52,14 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
 
         $this->configureRedisClient();
 
+        $this->app->singleton(MonitoringErrorReporter::class, function () {
+            return new MonitoringErrorReporter((float) config('server-orchestrator.reporting_cooldown_seconds', 60));
+        });
+        $this->app->bind(PrometheusMiddleware::class, fn () => new PrometheusMiddleware());
+        $this->app->bind(MetricsController::class, fn () => new MetricsController());
+        $this->app->bind(ApmController::class, fn () => new ApmController());
+        $this->app->bind(ApmErrorCaptureMiddleware::class, fn () => new ApmErrorCaptureMiddleware());
+
         $this->app->singleton(IApmErrorStore::class, function () {
             return $this->makeApmErrorStore();
         });
@@ -57,7 +69,12 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(CollectorRegistry::class, function () {
-            return new CollectorRegistry($this->makeMetricsAdapter());
+            try {
+                return new CollectorRegistry($this->makeMetricsAdapter());
+            } catch (\Throwable $e) {
+                $this->reportSafely($e);
+                return new CollectorRegistry(new NullAdapter(), false);
+            }
         });
 
         $this->app->singleton(SqlQueryMetricsRecorder::class, function ($app) {
@@ -71,33 +88,21 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
             return new InMemory();
         }
 
-        try {
+        return new FaultTolerantAdapter(function (): Adapter {
             $redisConnection = $this->makeRedisConnection(config('server-orchestrator.redis_connection', 'default'));
 
             $rawPrefix = config('server-orchestrator.prefix', 'laravel');
             $sanitized = strtolower(preg_replace('/[^a-zA-Z0-9_-]/', '_', $rawPrefix));
             $prefix = 'prometheus:' . $sanitized . ':';
 
-            return new FaultTolerantAdapter(
-                new PredisAdapter($redisConnection, $prefix, config('server-orchestrator.metrics_ttl', 86400))
-            );
-        } catch (\Throwable $e) {
-            $this->reportSafely($e);
-
-            return new NullAdapter();
-        }
+            return new PredisAdapter($redisConnection, $prefix, config('server-orchestrator.metrics_ttl', 86400));
+        }, (float) config('server-orchestrator.failure_cooldown_seconds', 5));
     }
 
     private function reportSafely(\Throwable $e): void
     {
-        if ($this->metricsSetupErrorReported) {
-            return;
-        }
-
-        $this->metricsSetupErrorReported = true;
-
         try {
-            report($e);
+            $this->app->make(MonitoringErrorReporter::class)->report($e);
         } catch (\Throwable) {
             // Metrics setup errors must never prevent the application from booting.
         }
@@ -157,7 +162,7 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
 
                 return new RedisApmErrorStore($this->makeRedisConnection($connection));
             } catch (\Throwable $e) {
-                report($e);
+                $this->reportSafely($e);
 
                 return new NullApmErrorStore();
             }
@@ -238,7 +243,11 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
     private function registerSqlListener(): void
     {
         DB::listen(function (QueryExecuted $query) {
-            app(SqlQueryMetricsRecorder::class)->recordDuration($query->sql, $query->time / 1000);
+            try {
+                app(SqlQueryMetricsRecorder::class)->recordDuration($query->sql, $query->time / 1000);
+            } catch (\Throwable $e) {
+                $this->reportSafely($e);
+            }
         });
     }
 
@@ -260,17 +269,19 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
 
     private function attachSqlExceptionReporter(mixed $handler): void
     {
-        static $attached = false;
-
-        if ($attached || ! is_object($handler) || ! method_exists($handler, 'reportable')) {
+        if ($this->sqlExceptionHandler === $handler || ! is_object($handler) || ! method_exists($handler, 'reportable')) {
             return;
         }
 
         $handler->reportable(function (QueryException $exception): void {
-            app(SqlQueryMetricsRecorder::class)->recordError($exception->getSql());
+            try {
+                app(SqlQueryMetricsRecorder::class)->recordError($exception->getSql());
+            } catch (\Throwable $e) {
+                $this->reportSafely($e);
+            }
         });
 
-        $attached = true;
+        $this->sqlExceptionHandler = $handler;
     }
 
     /**
@@ -331,9 +342,16 @@ class ServerOrchestratorServiceProvider extends ServiceProvider
         $this->app->booted(function () {
             $router = $this->app->make(\Illuminate\Routing\Router::class);
 
-            $router->get('/__apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
-            $router->get('/_apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
-            $router->get('/apm/errors', [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
+            $middleware = array_values(array_unique(array_merge(
+                (array) config('server-orchestrator.routes.middleware', []),
+                (array) config('server-orchestrator.apm.middleware', []),
+                [AuthorizeApmAccess::class]
+            )));
+            $router->group(['middleware' => $middleware], function () use ($router) {
+                foreach (['/__apm/errors', '/_apm/errors', '/apm/errors'] as $path) {
+                    $router->get($path, [\Fogeto\ServerOrchestrator\Http\Controllers\ApmController::class, 'index']);
+                }
+            });
         });
     }
 

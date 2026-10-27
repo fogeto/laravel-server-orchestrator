@@ -5,12 +5,17 @@ namespace Fogeto\ServerOrchestrator\Services;
 use DateTimeImmutable;
 use DateTimeZone;
 use Fogeto\ServerOrchestrator\Contracts\IApmErrorStore;
+use Fogeto\ServerOrchestrator\Contracts\ApmStoreAvailability;
 
-class MongoApmErrorStore implements IApmErrorStore
+class MongoApmErrorStore implements IApmErrorStore, ApmStoreAvailability
 {
+    private bool $available = false;
+
+    public function isAvailable(): bool { return $this->enabled && $this->available; }
+
     private static bool $indexesEnsured = false;
 
-    private static bool $errorReported = false;
+    private MonitoringErrorReporter $reporter;
 
     private mixed $manager = null;
 
@@ -37,8 +42,9 @@ class MongoApmErrorStore implements IApmErrorStore
 
     private int $maxLimit;
 
-    public function __construct()
+    public function __construct(?MonitoringErrorReporter $reporter = null)
     {
+        $this->reporter = $reporter ?? app(MonitoringErrorReporter::class);
         $config = config('server-orchestrator.apm', []);
         $mongo = $config['mongo'] ?? [];
 
@@ -59,6 +65,7 @@ class MongoApmErrorStore implements IApmErrorStore
             $this->manager = $this->newManager($connectionString);
             $this->enabled = true;
             $this->ensureIndexes();
+            $this->available = self::$indexesEnsured;
         } catch (\Throwable $e) {
             $this->reportOnce($e);
         }
@@ -103,6 +110,7 @@ class MongoApmErrorStore implements IApmErrorStore
                 }
             }
 
+            $this->available = true;
             return $events;
         } catch (\Throwable $e) {
             $this->reportOnce($e);
@@ -415,11 +423,7 @@ class MongoApmErrorStore implements IApmErrorStore
 
     private function reportOnce(\Throwable $e): void
     {
-        if (self::$errorReported) {
-            return;
-        }
-
-        report($e);
-        self::$errorReported = true;
+        $this->available = false;
+        $this->reporter->report($e);
     }
 }

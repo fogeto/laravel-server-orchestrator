@@ -1,5 +1,11 @@
 # APM Sorun Giderme Rehberi
 
+> v1.1.13: APM feed artik mevcut middleware'lere ek olarak authenticated user ve
+> servis geneli Gate yetkisi gerektirir. Asagidaki curl kontrollerini ayni yetkili
+> oturum/token ile yapin. Anonim 401 ve Gate reddi 403'tur; storage kesintisi veya
+> eksik config 503'tur. Gecmis olaylara ait `200 []` ve proxy yorumlarini bu ayrimla
+> okuyun. [Gecis rehberi](UPGRADE_1.1.13.md).
+
 Bu dokuman, `/apm/errors` veya `/__apm/errors` endpoint'i bos dondugunde, Mongo/Redis APM store calismadiginda veya Docker/Laravel config degisiklikleri runtime'a yansimadiginda izlenecek adimlari toplar.
 
 Gercek olay akisi su semptomlardan olusmustu:
@@ -61,9 +67,11 @@ Sonuclari soyle yorumlayin:
 | Sonuc | Anlam |
 |------|-------|
 | `404 Not Found` | APM route kayitli degil, paket eski olabilir veya route cache eski olabilir |
-| `200 []` | Route calisiyor, storage/capture tarafinda sorun var |
+| `200 []` | Yetkili okuma basarili; eslesen okunabilir event yok |
 | `200 [...]` | Route calisiyor ve store'dan event okunuyor |
-| `403 []` | Genellikle paket/store degil, public domain proxy/security/middleware katmani engelliyor |
+| `401` | Authenticated oturum/token gerekli |
+| `403` | Uygulama middleware'i, Gate veya proxy erisimi reddediyor |
+| `503` | APM storage kullanilamiyor veya dependency cozumlenemiyor |
 | `500` | Controller/store tarafinda exception var, Laravel log'a bakin |
 | Browser CORS hatasi | Browser problemi olabilir; once `curl` ile server response'u ayirin |
 
@@ -652,7 +660,7 @@ Patch sonrasi davranis:
 - Ornek placeholder:
 
 ```text
-[non-utf8 string omitted; bytes=41; base64_prefix=...]
+[non-utf8 body omitted]
 ```
 
 Bu hata uygulama endpoint'inden kaynaklanmaz; APM persistence katmaninin binary body sanitization eksiginden kaynaklanir.
@@ -663,7 +671,7 @@ Bu ayrim onemlidir:
 
 - `curl` ile `403` donuyorsa bu CORS degildir; server/proxy/security katmani istegi engelliyordur.
 - Browser console'da CORS hatasi varken `curl` `200` donuyorsa Laravel `config/cors.php` veya proxy CORS header'lari eksiktir.
-- Container icinde `127.0.0.1` 200 ama public domain 403 ise paket ve Mongo calisiyor demektir; dis katman kontrol edilmelidir.
+- Ayni yetkili oturum/token ve Host ile container icinde 200, public domain'de 403 ise proxy ve uygulama middleware farklarini kontrol edin; farkli auth baglamlari bu karsilastirmayi kanit yapmaz.
 
 Uc noktayi ayri test edin:
 

@@ -47,7 +47,7 @@ Mongo config yoksa veya `ext-mongodb` yüklü değilse:
 
 - request akışı kırılmaz
 - capture sessizce devre dışı kalır
-- `/apm/errors` boş array döndürür
+- yetkili `/apm/errors` isteği `503` döndürür
 
 ### Redis store
 
@@ -62,7 +62,7 @@ Redis config yoksa veya bağlantı kurulamazsa:
 
 - request akışı kırılmaz
 - capture sessizce devre dışı kalır
-- `/apm/errors` boş array döndürür
+- yetkili `/apm/errors` isteği `503` döndürür
 
 ## 4. APM capture bypass kuralları
 
@@ -295,21 +295,15 @@ $prefix = 'prometheus:' . $sanitized . ':';
 
 ## 8. Fail-open Metrics Storage
 
-Redis bağlantısı oluşturulamazsa no-op adapter kullanılır. Bağlantı oluşturulduktan
-sonraki Redis yazma hataları da fault-tolerant adapter tarafından yakalanır:
+Redis adapter factory'si `FaultTolerantAdapter` içinde lazy çalışır. Kurulum,
+yazma veya okuma arızası 5 saniyelik cooldown açar. Business yazmaları atlanır,
+scrape ise kontrollü 503 döner. Cooldown sonrasında ilk çağrı bağlantıyı yeniden dener:
 
 ```php
 $this->app->singleton(CollectorRegistry::class, function () {
-    try {
-        // Redis bağlantısı + PredisAdapter
-        $adapter = new FaultTolerantAdapter(
-            new PredisAdapter($redisConnection, $prefix)
-        );
-    } catch (\Throwable $e) {
-        reportSafely($e);  // Hata loglanır
-        $adapter = new NullAdapter();  // Metrik kaydı atlanır
-    }
-
+    $adapter = new FaultTolerantAdapter(function () {
+        return new PredisAdapter(Redis::connection('default'), 'prometheus:app:');
+    });
     return new CollectorRegistry($adapter);
 });
 ```
@@ -318,9 +312,10 @@ $this->app->singleton(CollectorRegistry::class, function () {
 - Redis sağlıklıyken metrik davranışı değişmez
 - Redis yazma hatasında yalnızca ilgili metrik kaydı atlanır
 - Business request bir kez çalışır ve kendi response/exception sonucu korunur
-- İlk storage hatası process başına bir kez loglanır; log flood oluşmaz
+- Paylaşılan non-throwing reporter 60 saniyelik aralıkla log flood'u sınırlar ve recursive reporting'i keser
 - Geçici Redis hatasında meta cache temizlenir ve ilk sağlıklı yazıda metadata yeniden oluşturulur
-- Redis adapter kurulamazsa no-op adapter uygulamanın boot etmesini sağlar
+- Redis adapter kurulum hatası cooldown sonrası tekrar denenir; worker restart şart değildir
+- Registry'nin kendisi kurulamazsa no-op fallback business akışını korur; fallback collect'i 503'e dönüşür
 
 **Önerilen aksiyon:** Redis bağlantı hatası alıyorsanız `.env`'deki Redis ayarlarını kontrol edin.
 
