@@ -1,5 +1,10 @@
 # Laravel Server Orchestrator
 
+> v1.1.13 guvenlik guncellemesi: APM feed'leri artik mevcut guard/middleware'lere
+> ek olarak servis geneli Gate yetkisi gerektirir. Guncellemeden once
+> [v1.1.13 gecis rehberini](docs/UPGRADE_1.1.13.md) okuyun. Business auth ve abonelik
+> akisi degismez; metrik storage arizasinda scrape kontrollu 503 doner.
+
 [![Laravel 9.x-12.x](https://img.shields.io/badge/Laravel-9.x--12.x-red.svg)](https://laravel.com)
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0%2B-blue.svg)](https://php.net)
 
@@ -36,7 +41,7 @@ HTTP, SQL ve DB client metric aileleri Prometheus formatında sunulur. APM hata 
 | ext-mongodb | Mongo tabanlı APM persistence için gerekli |
 | ext-redis | `ORCHESTRATOR_REDIS_CLIENT=phpredis` için gerekli |
 
-> Seçilen APM store için gerekli extension/config yoksa package çalışmaya devam eder; sadece APM persistence devre dışı kalır ve `/apm/errors` boş array döner.
+> Seçilen APM store için gerekli extension/config yoksa business request çalışmaya devam eder; yetkili `/apm/errors` isteği storage kullanılamadığında `503` döner.
 
 ## Storage modeli
 
@@ -243,7 +248,10 @@ ORCHESTRATOR_APM_TTL=86400
 
 Redis APM storage, event'leri `ORCHESTRATOR_PREFIX` veya `ORCHESTRATOR_APM_REDIS_PREFIX` ile izole eder.
 
-APM endpoint'leri paket içinde IP doğrulaması yapmaz. Production'da erişimi gerekiyorsa reverse proxy, firewall veya uygulama dışı auth katmanı ile kısıtlayın.
+APM endpoint'leri mevcut `routes.middleware` ve `apm.middleware` katmanlarını korur;
+ayrıca authenticated user ve `apm.authorization_ability` Gate yetkisi gerektirir.
+Varsayılan ability `viewServerOrchestratorApm` tanımsızsa erişim kapalıdır.
+Mevcut admin permission'ınızı bağlamak için [geçiş rehberini](docs/UPGRADE_1.1.13.md) kullanın.
 
 ## Çoklu proje yapısı
 
@@ -337,6 +345,8 @@ class ProcessPayment implements ShouldQueue
 ## Route Koruma (Güvenlik)
 
 Metrics endpoint'ini production'da dışarıya açık bırakmayın!
+APM feed'leri için aşağıdaki network/auth katmanlarına ek olarak servis geneli Gate
+yetkisi gerekir. Sadece login olmak bütün hata kayıtlarını okumaya yetmez.
 
 ### Yöntem 1: Auth Middleware
 
