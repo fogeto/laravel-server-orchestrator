@@ -3,12 +3,17 @@
 namespace Fogeto\ServerOrchestrator\Services;
 
 use Fogeto\ServerOrchestrator\Contracts\IApmErrorStore;
+use Fogeto\ServerOrchestrator\Contracts\ApmStoreAvailability;
 use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Str;
 
-class RedisApmErrorStore implements IApmErrorStore
+class RedisApmErrorStore implements IApmErrorStore, ApmStoreAvailability
 {
-    private static bool $errorReported = false;
+    private bool $available = true;
+
+    public function isAvailable(): bool { return $this->available; }
+
+    private MonitoringErrorReporter $reporter;
 
     private string $indexKey;
 
@@ -22,8 +27,9 @@ class RedisApmErrorStore implements IApmErrorStore
 
     private int $capacity;
 
-    public function __construct(private Connection $redis)
+    public function __construct(private Connection $redis, ?MonitoringErrorReporter $reporter = null)
     {
+        $this->reporter = $reporter ?? app(MonitoringErrorReporter::class);
         $config = config('server-orchestrator.apm', []);
         $redisConfig = $config['redis'] ?? [];
 
@@ -79,6 +85,7 @@ class RedisApmErrorStore implements IApmErrorStore
     {
         try {
             $this->pruneExpired();
+            $this->available = true;
 
             $limit = min(max(1, $limit), $this->maxLimit);
             $ids = $this->ensureList($this->redis->zrevrange($this->indexKey, 0, $limit - 1));
@@ -180,11 +187,7 @@ class RedisApmErrorStore implements IApmErrorStore
 
     private function reportOnce(\Throwable $e): void
     {
-        if (self::$errorReported) {
-            return;
-        }
-
-        report($e);
-        self::$errorReported = true;
+        $this->available = false;
+        $this->reporter->report($e);
     }
 }

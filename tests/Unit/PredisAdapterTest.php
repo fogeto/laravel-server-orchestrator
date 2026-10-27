@@ -13,7 +13,7 @@ final class PredisAdapterTest extends TestCase
     {
         $connection = new FlakyInMemoryRedisConnection();
         $adapter = new FaultTolerantAdapter(
-            new PredisAdapter($connection, 'prometheus:retry_test:', null)
+            new PredisAdapter($connection, 'prometheus:retry_test:', null), 0.0
         );
         $metric = [
             'name' => 'recovered_counter',
@@ -41,7 +41,7 @@ final class PredisAdapterTest extends TestCase
     {
         $connection = new FlakyInMemoryRedisConnection(null, false);
         $adapter = new FaultTolerantAdapter(
-            new PredisAdapter($connection, 'prometheus:restart_test:', null)
+            new PredisAdapter($connection, 'prometheus:restart_test:', null), 0.0
         );
         $metric = [
             'name' => 'restart_counter',

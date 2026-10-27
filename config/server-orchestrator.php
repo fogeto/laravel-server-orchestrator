@@ -28,6 +28,8 @@ return [
     |
     */
     'metrics_storage' => env('ORCHESTRATOR_METRICS_STORAGE', 'redis'),
+    'failure_cooldown_seconds' => env('ORCHESTRATOR_FAILURE_COOLDOWN_SECONDS', 5),
+    'reporting_cooldown_seconds' => env('ORCHESTRATOR_REPORTING_COOLDOWN_SECONDS', 60),
 
     /*
     |--------------------------------------------------------------------------
@@ -242,6 +244,11 @@ return [
     |
     */
     'apm' => [
+        // Existing application guard/permission/subscription middleware runs first.
+        // The service-wide APM feed additionally requires this Gate ability.
+        'middleware' => [],
+        'authorization_ability' => env('ORCHESTRATOR_APM_AUTHORIZATION_ABILITY', 'viewServerOrchestratorApm'),
+        'sensitive_fields' => [],
         'enabled' => env('ORCHESTRATOR_APM_ENABLED', true),
         'store' => env('ORCHESTRATOR_APM_STORE', 'mongo'), // mongo | redis
         'service' => env('ORCHESTRATOR_APM_SERVICE', env('ORCHESTRATOR_PREFIX', env('APP_NAME', 'laravel'))),
